@@ -1,3 +1,3 @@
 [workspace]
 resolver = "2"
-members = ["redis-server"]
+members = ["redis-server", "resp"]
