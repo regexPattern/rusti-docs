@@ -1,14 +1,13 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+#![allow(dead_code, unused_variables)]
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod cli;
+mod command;
+mod config;
+mod error;
+mod node;
+mod server;
+mod storage;
+mod thread_pool;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use config::Config;
+pub use server::Server;
