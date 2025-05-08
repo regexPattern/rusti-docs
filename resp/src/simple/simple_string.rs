@@ -2,11 +2,23 @@ use crate::error::Error;
 
 pub const PREFIX: u8 = b'+';
 
-#[derive(Debug, PartialEq)]
-pub struct SimpleString(pub String);
+#[derive(Debug, Hash, Eq, PartialEq, Clone)]
+pub struct SimpleString(String);
 
 impl From<&str> for SimpleString {
     fn from(content: &str) -> Self {
+        Self(content.to_string())
+    }
+}
+
+impl From<String> for SimpleString {
+    fn from(content: String) -> Self {
+        Self(content)
+    }
+}
+
+impl From<&String> for SimpleString {
+    fn from(content: &String) -> Self {
         Self(content.to_string())
     }
 }

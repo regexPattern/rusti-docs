@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-uuid = { version = "1.16.0", features = ["v4"] }
+commands = { path = "../commands" }
 crc16 = "0.4"
-# commands = { path = "../commands" }
+log = { path = "../log" }
+resp = { path = "../resp" }
+uuid = { version = "1.16.0", features = ["v4"] }

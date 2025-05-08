@@ -1,14 +1,28 @@
+use std::fmt;
+
 use crate::Error;
 
-use super::BulkLength;
+use super::ContentLength;
 
 pub const PREFIX: u8 = b'$';
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct BulkString(String);
 
 impl From<&str> for BulkString {
     fn from(content: &str) -> Self {
+        Self(content.to_string())
+    }
+}
+
+impl From<String> for BulkString {
+    fn from(content: String) -> Self {
+        Self(content)
+    }
+}
+
+impl From<&String> for BulkString {
+    fn from(content: &String) -> Self {
         Self(content.to_string())
     }
 }
@@ -19,15 +33,21 @@ impl From<BulkString> for String {
     }
 }
 
+impl<'b> From<&'b BulkString> for &'b str {
+    fn from(bs: &'b BulkString) -> &'b str {
+        bs.0.as_str()
+    }
+}
+
 impl TryFrom<&[u8]> for BulkString {
     type Error = Error;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let BulkLength {
+        let ContentLength {
             length,
             end_idx: length_end_idx,
             bytes_windows_rest: mut bytes_windows,
-        } = super::bulk_length(bytes, PREFIX)?;
+        } = super::content_length(bytes, PREFIX)?;
 
         bytes_windows.next();
 
@@ -49,11 +69,23 @@ impl TryFrom<&[u8]> for BulkString {
     }
 }
 
-impl From<BulkString> for Vec<u8> {
-    fn from(bs: BulkString) -> Self {
+impl From<&BulkString> for Vec<u8> {
+    fn from(bs: &BulkString) -> Self {
         let resp_str = format!("${}\r\n{}\r\n", bs.0.len(), bs.0);
         let bytes = resp_str.as_bytes();
         bytes.into()
+    }
+}
+
+impl From<BulkString> for Vec<u8> {
+    fn from(bs: BulkString) -> Self {
+        Vec::from(&bs)
+    }
+}
+
+impl fmt::Display for BulkString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 

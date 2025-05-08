@@ -7,113 +7,197 @@ use std::{
     thread,
 };
 
+use commands::{Command, pub_sub::*};
+use log::LogMsg;
+use resp::{BulkString, RespDataType, SimpleString};
 use uuid::Uuid;
 
-type Subs = HashMap<String, HashMap<Uuid, Sender<String>>>;
+type State = HashMap<BulkString, HashMap<Uuid, Sender<BulkString>>>;
 
 #[derive(Debug)]
 pub struct Broker {
-    state: Arc<Mutex<Subs>>,
-    logger_tx: Sender<String>,
+    state: Arc<Mutex<State>>,
+    logger_tx: Sender<LogMsg>,
 }
 
 #[derive(Debug)]
-pub enum Envelope {
-    Subscribe { stream: TcpStream, channel: String },
-    Publish { channel: String, message: String },
-    UnSubscribe { channel: String, client_id: Uuid },
+pub struct Envelope {
+    pub client_conn: TcpStream,
+    pub cmd: PubSubCommand,
 }
 
 impl Broker {
-    pub fn new(logger_tx: Sender<String>) -> Self {
+    pub fn new(logger_tx: Sender<LogMsg>) -> Self {
         Self {
             state: Arc::new(Mutex::new(HashMap::new())),
             logger_tx,
         }
     }
 
-    pub fn handle_request(&mut self, envel: Envelope) {
-        match envel {
-            Envelope::Subscribe { stream, channel } => self.handle_subscribe(stream, channel),
-            Envelope::Publish { channel, message } => self.handle_publish(channel, message),
-            Envelope::UnSubscribe { channel, client_id } => {
-                // self.handle_unsubscribe(channel, client_id);
+    pub fn process(&mut self, mut envel: Envelope) {
+        match envel.cmd {
+            PubSubCommand::Subscribe(Subscribe { channels }) => {
+                self.subscribe(envel.client_conn, channels);
             }
+            PubSubCommand::Publish(Publish { channel, message }) => {
+                let reply = self.publish(channel, message).unwrap();
+                let bytes = Vec::from(reply);
+                envel.client_conn.write_all(bytes.as_slice()).unwrap();
+            }
+            PubSubCommand::Unsubscribe(Unsubscribe { channels }) => todo!(),
+            PubSubCommand::PubSubChannels(PubSubChannels { pattern }) => todo!(),
+            PubSubCommand::PubSubNumSub(PubSubNumSub { channels }) => todo!(),
         }
     }
 
-    fn handle_subscribe(&mut self, stream: TcpStream, channel: String) {
+    // https://redis.io/docs/latest/commands/subscribe#resp2resp3-reply
+    fn subscribe(&mut self, client_conn: TcpStream, channels: Vec<BulkString>) {
+        let client_id = Uuid::new_v4();
         let (client_tx, client_rx) = mpsc::channel();
 
-        let client_id = Uuid::new_v4();
+        let mut state = self.state.lock().unwrap();
 
-        let mut map = self.state.lock().unwrap();
-        let subs = map.entry(channel.clone()).or_default();
-        subs.insert(client_id, client_tx);
+        for channel in channels {
+            self.logger_tx
+                .send(log::info!(
+                    "suscribiendo cliente {client_id} a channel {channel}"
+                ))
+                .unwrap();
 
-        let subs_clone = self.state.clone();
+            let chan_subs = state.entry(channel).or_default();
+            chan_subs.insert(client_id, client_tx.clone());
+        }
+
+        let subs = Arc::clone(&self.state);
+        let logger_tx = self.logger_tx.clone();
+
+        //OJO FALTA RTA DEL SERVER AL CLINETE Q POSTA SE SUBSCRIBIO
+        // When successful, this command doesn't return anything.
+        // Instead, for each channel, one message with the first element
+        // being the string subscribe is pushed as a confirmation
+        // that the command succeeded.
 
         thread::spawn(move || {
-            println!("SUSCRIBIENDO CLIENTE: {}", client_id);
-
-            let read_stream = stream.try_clone().unwrap();
-            let mut write_stream = stream;
-
-            // let (err_tx, err_rx) = mpsc::channel();
-            // let err_tx_clone = err_tx.clone();
+            let read_stream = client_conn.try_clone().unwrap();
+            let mut write_stream = client_conn;
 
             thread::spawn(move || {
                 for message in client_rx {
-                    if let Err(e) = writeln!(write_stream, "{}", message) {
+                    if let Err(e) = writeln!(write_stream, "{}", String::from(message)) {
                         println!("Error escribiendo al cliente {}: {}", client_id, e);
-                        // Broker::handle_emergency_unsubscribe(subs_clone, client_id_clone);
                         break;
                     }
                 }
             });
 
             thread::spawn(move || {
-                let reader = BufReader::new(read_stream);
-                // let bytes = reader.fill_buf().unwrap();
-                // let length = bytes.len();
-                // reader.consume(length);
+                let mut reader = BufReader::new(read_stream);
 
-                for line in reader.lines() {
-                    match line {
-                        Ok(comando) => {
-                            println!("CLIENTE ENVIÓ: {}", comando);
+                loop {
+                    let buffer = match reader.fill_buf() {
+                        Ok(buf) if !buf.is_empty() => buf,
+                        Ok(_) => continue, // Si no hay datos, sigue esperando
+                        Err(e) => {
+                            println!("Error leyendo del cliente {}: {:?}", client_id, e);
+                            break;
+                        }
+                    };
+                    match commands::Command::try_from(buffer) {
+                        Ok(cmd) => {
+                            println!("CLIENTE ENVIÓ: {:?}", cmd);
+                            Broker::process_pubsub_cmd_anidado(
+                                Arc::clone(&subs),
+                                logger_tx.clone(),
+                                cmd,
+                                client_id,
+                                client_tx.clone(),
+                            );
+                            let len = buffer.len();
+                            reader.consume(len);
                         }
                         Err(e) => {
-                            println!("Cliente desconectado o error de lectura: {}", e);
-                            Broker::handle_emergency_unsubscribe(subs_clone, client_id);
+                            println!("Error parseando RESP del cliente {}: {:?}", client_id, e);
                             break;
                         }
                     }
                 }
-            })
+            });
         });
     }
 
-    fn handle_publish(&mut self, channel: String, message: String) {
-        dbg!(&self.state);
-
-        let map_guard = self.state.lock().unwrap();
-        if let Some(channel_subs) = map_guard.get(&channel) {
-            for (_client_id, client_tx) in channel_subs {
-                println!("Enviando mensaje a cliente: {}", _client_id);
-                client_tx.send(message.clone()).unwrap();
+    fn process_pubsub_cmd_anidado(
+        subs: Arc<Mutex<State>>,
+        logger_tx: Sender<LogMsg>,
+        cmd: commands::Command,
+        client_id: Uuid,
+        client_tx: Sender<BulkString>,
+    ) {
+        if let Command::PubSub(PubSubCommand::Subscribe(Subscribe { channels })) = cmd {
+            let mut state = subs.lock().unwrap();
+            for channel in channels {
+                logger_tx
+                    .send(log::info!(
+                        "suscribiendo cliente {client_id} a channel {channel}"
+                    ))
+                    .unwrap();
+                let chan_subs = state.entry(channel).or_default();
+                chan_subs.insert(client_id, client_tx.clone());
             }
+
+            //OJO FALTA RTA DEL SERVER AL CLINETE Q POSTA SE SUBSCRIBIO
+            // When successful, this command doesn't return anything.
+            // Instead, for each channel, one message with the first element
+            // being the string subscribe is pushed as a confirmation
+            // that the command succeeded.
         }
     }
 
-    fn handle_emergency_unsubscribe(subs: Arc<Mutex<Subs>>, client_id: Uuid) {
-        let mut subs_guard = subs.lock().unwrap();
-        for (chan, clients) in subs_guard.iter_mut() {
-            if clients.remove(&client_id).is_some() {
-                println!("emergy remove client {} from channel {}", client_id, chan);
+    fn add_subscriptions(
+        &mut self,
+        client_id: Uuid,
+        channels: Vec<BulkString>,
+        client_tx: Sender<BulkString>,
+    ) {
+        let mut state = self.state.lock().unwrap();
+        for channel in channels {
+            self.logger_tx
+                .send(log::info!(
+                    "suscribiendo cliente {client_id} a channel {channel}"
+                ))
+                .unwrap();
+            let chan_subs = state.entry(channel).or_default();
+            chan_subs.insert(client_id, client_tx.clone());
+        }
+    }
+
+    // https://redis.io/docs/latest/commands/publish#resp2resp3-reply
+    fn publish(&mut self, channel: BulkString, msg: BulkString) -> Result<RespDataType, ()> {
+        let state = self.state.lock().unwrap();
+
+        if let Some(chan_subs) = state.get(&channel) {
+            for client_tx in chan_subs.values() {
+                client_tx.send(msg.clone()).unwrap();
+            }
+        }
+
+        Ok(SimpleString::from("OK").into())
+    }
+
+    // https://redis.io/docs/latest/commands/unsubscribe#resp2resp3-reply
+    fn unsubscribe(subs: Arc<Mutex<State>>, client_id: Uuid) -> Result<RespDataType, ()> {
+        let mut state = subs.lock().unwrap();
+
+        for (chan_name, chan_subs) in state.iter_mut() {
+            if chan_subs.remove(&client_id).is_some() {
+                println!(
+                    "emergy remove client {} from channel {:?}",
+                    client_id, chan_name
+                );
             }
         }
         //eliminamos canales vacíos
-        subs_guard.retain(|_, clients| !clients.is_empty());
+        state.retain(|_, clients| !clients.is_empty());
+
+        Ok(SimpleString::from("OK").into())
     }
 }

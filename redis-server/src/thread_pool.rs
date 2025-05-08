@@ -1,5 +1,8 @@
 use std::{
-    sync::{Arc, Mutex, mpsc},
+    sync::{
+        Arc, Mutex,
+        mpsc::{self, Receiver},
+    },
     thread,
 };
 
@@ -45,7 +48,7 @@ impl ThreadPool {
         if let Some(sender) = &self.sender {
             sender
                 .send(job)
-                .map_err(|err| Error::SendError(format!("failed to send job: {err}")))
+                .map_err(|err| Error::SendError(format!("fallo al enviar tarea: {err}")))
         } else {
             Err(Error::NoSender)
         }
@@ -66,30 +69,31 @@ impl Drop for ThreadPool {
 
 #[derive(Debug)]
 struct Worker {
-    id: usize,
     thread: Option<thread::JoinHandle<()>>,
 }
 
 impl Worker {
-    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
+    fn new(id: usize, receiver: Arc<Mutex<Receiver<Job>>>) -> Worker {
         let thread = thread::spawn(move || {
             loop {
                 let job = match receiver.lock() {
                     Ok(receiver_guard) => receiver_guard.recv(),
                     Err(e) => {
-                        println!("Worker {id} failed to acquire lock from receiver: {e}");
+                        println!(
+                            "{}",
+                            log::error!("worker {id} fallo en adquirir lock del receiver: {e}")
+                        );
                         break;
                     }
                 };
 
                 match job {
                     Ok(job) => {
-                        println!("Worker {id} got a job; executing.");
-
+                        println!("{}", log::debug!("worker {id} ejecutando tarea"));
                         job();
                     }
                     Err(_) => {
-                        println!("Worker {id} disconnected; shutting down.");
+                        println!("{}", log::debug!("worker {id} desconectado"));
                         break;
                     }
                 }
@@ -97,7 +101,6 @@ impl Worker {
         });
 
         Worker {
-            id,
             thread: Some(thread),
         }
     }

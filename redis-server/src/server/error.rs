@@ -1,12 +1,20 @@
-use std::{io, sync::mpsc::SendError};
+use std::io;
 
 use crate::thread_pool;
 
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
-    LogSend(SendError<String>),
+    Log(log::Error),
     ThreadPool(thread_pool::Error),
+}
+
+impl std::error::Error for Error {}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
 }
 
 impl From<io::Error> for Error {
@@ -15,9 +23,9 @@ impl From<io::Error> for Error {
     }
 }
 
-impl From<SendError<String>> for Error {
-    fn from(err: SendError<String>) -> Self {
-        Self::LogSend(err)
+impl From<log::Error> for Error {
+    fn from(err: log::Error) -> Self {
+        Self::Log(err)
     }
 }
 

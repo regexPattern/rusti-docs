@@ -1,23 +1,23 @@
-use crate::DataType;
+use crate::RespDataType;
 use crate::error::Error;
 
-use super::{BulkLength, Map, Set, bulk_string, map, set};
+use super::{BulkString, ContentLength, Map, Set, bulk_string, map, set};
 
 pub const PREFIX: u8 = b'*';
 
-#[derive(Debug, PartialEq)]
-pub struct Array(Vec<DataType>);
+#[derive(Debug, PartialEq, Clone)]
+pub struct Array(Vec<RespDataType>);
 
 impl Array {
     pub fn parse_elements_recursive(
         bytes: &[u8],
         prefix: u8,
-    ) -> Result<(Vec<DataType>, usize), Error> {
-        let BulkLength {
+    ) -> Result<(Vec<RespDataType>, usize), Error> {
+        let ContentLength {
             mut length,
             end_idx: length_end_idx,
             bytes_windows_rest: _,
-        } = super::bulk_length(bytes, prefix)?;
+        } = super::content_length(bytes, prefix)?;
 
         let mut bytes_idx = length_end_idx + 2;
 
@@ -39,17 +39,17 @@ impl Array {
         Ok((elements, bytes_idx))
     }
 
-    pub fn parse_simple_element(bytes: &[u8]) -> Result<(DataType, usize), Error> {
+    pub fn parse_simple_element(bytes: &[u8]) -> Result<(RespDataType, usize), Error> {
         let offset = bytes
             .windows(2)
             .position(|w| w == b"\r\n")
             .ok_or(Error::MissingTerminator)?
             + 2;
 
-        Ok((DataType::try_from(&bytes[..offset])?, offset))
+        Ok((RespDataType::try_from(&bytes[..offset])?, offset))
     }
 
-    fn parse_bulk_string(bytes: &[u8]) -> Result<(DataType, usize), Error> {
+    fn parse_bulk_string(bytes: &[u8]) -> Result<(RespDataType, usize), Error> {
         let mut bytes_windows = bytes.windows(2);
 
         let length_end_idx = bytes_windows
@@ -64,10 +64,10 @@ impl Array {
 
         let offset = (length_end_idx + 2) + (content_end_idx + 2);
 
-        Ok((DataType::try_from(&bytes[..offset])?, offset))
+        Ok((RespDataType::try_from(&bytes[..offset])?, offset))
     }
 
-    fn parse_element(bytes: &[u8]) -> Result<(DataType, usize), Error> {
+    fn parse_element(bytes: &[u8]) -> Result<(RespDataType, usize), Error> {
         match bytes.first() {
             Some(&bulk_string::PREFIX) => Self::parse_bulk_string(bytes),
             Some(&map::PREFIX) | Some(&set::PREFIX) | Some(&PREFIX) => Self::parse_nested(bytes),
@@ -76,13 +76,13 @@ impl Array {
         }
     }
 
-    fn parse_nested(bytes: &[u8]) -> Result<(DataType, usize), Error> {
+    fn parse_nested(bytes: &[u8]) -> Result<(RespDataType, usize), Error> {
         let prefix = bytes.first().ok_or(Error::WrongBulkLength)?;
         let (inner, offset) = Self::parse_elements_recursive(bytes, *prefix)?;
         let element = match *prefix {
-            map::PREFIX => DataType::Map(Map::from(inner)),
-            set::PREFIX => DataType::Set(Set::from(inner)),
-            PREFIX => DataType::Array(Self(inner)),
+            map::PREFIX => RespDataType::Map(Map::from(inner)),
+            set::PREFIX => RespDataType::Set(Set::from(inner)),
+            PREFIX => RespDataType::Array(Self(inner)),
             _ => unreachable!(),
         };
         Ok((element, offset))
@@ -100,23 +100,31 @@ impl TryFrom<&[u8]> for Array {
 
 impl From<Array> for Vec<u8> {
     fn from(arr: Array) -> Self {
-        let mut result = Vec::from(format!("*{}\r\n", arr.0.len()));
-
+        let mut result = Vec::from(format!("{}{}\r\n", PREFIX as char, arr.0.len()));
         for element in arr.0 {
             result.extend(Vec::from(element));
         }
-
         result
     }
 }
 
-impl From<Vec<DataType>> for Array {
-    fn from(elements: Vec<DataType>) -> Self {
+impl Array {
+    pub fn to_resp_vec(col: &[&BulkString]) -> Vec<u8> {
+        let mut result = Vec::from(format!("{}{}\r\n", PREFIX as char, col.len()));
+        for element in col {
+            result.extend(Vec::from(*element));
+        }
+        result
+    }
+}
+
+impl From<Vec<RespDataType>> for Array {
+    fn from(elements: Vec<RespDataType>) -> Self {
         Self(elements)
     }
 }
 
-impl From<Array> for Vec<DataType> {
+impl From<Array> for Vec<RespDataType> {
     fn from(arr: Array) -> Self {
         arr.0
     }
@@ -131,8 +139,8 @@ mod tests {
     #[test]
     fn array_de_un_solo_tipo_se_serializa_correctamente() {
         let arr = Array(vec![
-            DataType::BulkString(BulkString::from("hello")),
-            DataType::BulkString(BulkString::from("world")),
+            RespDataType::BulkString(BulkString::from("hello")),
+            RespDataType::BulkString(BulkString::from("world")),
         ]);
 
         let bytes: Vec<u8> = arr.into();
@@ -145,12 +153,12 @@ mod tests {
     #[test]
     fn array_de_multiples_tipos_se_serializa_correctamente() {
         let arr = Array(vec![
-            DataType::Integer(Integer::from(-6)),
-            DataType::SimpleError(SimpleError {
+            RespDataType::Integer(Integer::from(-6)),
+            RespDataType::SimpleError(SimpleError {
                 prefix: "ERROR".to_string(),
                 msg: None,
             }),
-            DataType::BulkString(BulkString::from("Hello, World!")),
+            RespDataType::BulkString(BulkString::from("Hello, World!")),
         ]);
 
         let bytes: Vec<u8> = arr.into();
@@ -174,14 +182,14 @@ mod tests {
     #[test]
     fn arrays_anidados_se_serializan_correctamente() {
         let arr = Array(vec![
-            DataType::Array(Array(vec![
-                DataType::Integer(Integer::from(1)),
-                DataType::Integer(Integer::from(2)),
-                DataType::Integer(Integer::from(-1)),
+            RespDataType::Array(Array(vec![
+                RespDataType::Integer(Integer::from(1)),
+                RespDataType::Integer(Integer::from(2)),
+                RespDataType::Integer(Integer::from(-1)),
             ])),
-            DataType::Array(Array(vec![
-                DataType::SimpleString(SimpleString::from("Hello")),
-                DataType::SimpleError(SimpleError {
+            RespDataType::Array(Array(vec![
+                RespDataType::SimpleString(SimpleString::from("Hello")),
+                RespDataType::SimpleError(SimpleError {
                     prefix: "World".to_string(),
                     msg: None,
                 }),
@@ -206,9 +214,9 @@ mod tests {
         assert_eq!(
             arr.0,
             [
-                DataType::Integer(Integer::from(1)),
-                DataType::Integer(Integer::from(2)),
-                DataType::Integer(Integer::from(3))
+                RespDataType::Integer(Integer::from(1)),
+                RespDataType::Integer(Integer::from(2)),
+                RespDataType::Integer(Integer::from(3))
             ]
         );
     }
@@ -219,7 +227,10 @@ mod tests {
 
         let arr = Array::try_from(bytes).unwrap();
 
-        assert_eq!(arr.0, [DataType::BulkString(BulkString::from("ABC\rDEF")),]);
+        assert_eq!(
+            arr.0,
+            [RespDataType::BulkString(BulkString::from("ABC\rDEF")),]
+        );
     }
 
     #[test]
@@ -240,12 +251,12 @@ mod tests {
         assert_eq!(
             arr.0,
             [
-                DataType::Integer(Integer::from(-6)),
-                DataType::SimpleError(SimpleError {
+                RespDataType::Integer(Integer::from(-6)),
+                RespDataType::SimpleError(SimpleError {
                     prefix: "ERROR".to_string(),
                     msg: None
                 }),
-                DataType::BulkString(BulkString::from("Hello, World!")),
+                RespDataType::BulkString(BulkString::from("Hello, World!")),
             ]
         );
     }
@@ -253,9 +264,9 @@ mod tests {
     #[test]
     fn array_con_null_type_se_serializa_correctamente() {
         let arr = Array(vec![
-            DataType::Integer(Integer::from(42)),
-            DataType::Null,
-            DataType::BulkString(BulkString::from("hello")),
+            RespDataType::Integer(Integer::from(42)),
+            RespDataType::Null,
+            RespDataType::BulkString(BulkString::from("hello")),
         ]);
 
         let bytes: Vec<u8> = arr.into();
@@ -272,9 +283,9 @@ mod tests {
         assert_eq!(
             arr.0,
             [
-                DataType::Integer(Integer::from(42)),
-                DataType::Null,
-                DataType::BulkString(BulkString::from("hello")),
+                RespDataType::Integer(Integer::from(42)),
+                RespDataType::Null,
+                RespDataType::BulkString(BulkString::from("hello")),
             ]
         );
     }
@@ -299,14 +310,14 @@ mod tests {
         assert_eq!(
             arr.0,
             [
-                DataType::Array(Array(vec![
-                    DataType::Integer(Integer::from(1)),
-                    DataType::Integer(Integer::from(2)),
-                    DataType::Integer(Integer::from(-1)),
+                RespDataType::Array(Array(vec![
+                    RespDataType::Integer(Integer::from(1)),
+                    RespDataType::Integer(Integer::from(2)),
+                    RespDataType::Integer(Integer::from(-1)),
                 ])),
-                DataType::Array(Array(vec![
-                    DataType::SimpleString(SimpleString::from("Hello")),
-                    DataType::SimpleError(SimpleError {
+                RespDataType::Array(Array(vec![
+                    RespDataType::SimpleString(SimpleString::from("Hello")),
+                    RespDataType::SimpleError(SimpleError {
                         prefix: "World".to_string(),
                         msg: None,
                     }),
@@ -323,7 +334,7 @@ mod tests {
 
         assert_eq!(
             elem,
-            DataType::SimpleString(SimpleString::from("Hello, World!"))
+            RespDataType::SimpleString(SimpleString::from("Hello, World!"))
         );
     }
 
@@ -342,7 +353,10 @@ mod tests {
 
         let (bs, _) = Array::parse_bulk_string(bytes).unwrap();
 
-        assert_eq!(bs, DataType::BulkString(BulkString::from("Hello, World!")));
+        assert_eq!(
+            bs,
+            RespDataType::BulkString(BulkString::from("Hello, World!"))
+        );
     }
 
     #[test]
@@ -365,9 +379,9 @@ mod tests {
 
     #[test]
     fn parse_elements_recursive_con_map_anidado() {
-        let arr = Array(vec![DataType::Map(Map::from(vec![
-            DataType::SimpleString(SimpleString::from("first")),
-            DataType::Integer(Integer::from(1)),
+        let arr = Array(vec![RespDataType::Map(Map::from(vec![
+            RespDataType::SimpleString(SimpleString::from("first")),
+            RespDataType::Integer(Integer::from(1)),
         ]))]);
 
         let bytes: Vec<u8> = arr.into();
@@ -376,18 +390,18 @@ mod tests {
 
         assert_eq!(
             arr,
-            Array(vec![DataType::Map(Map::from(vec![
-                DataType::SimpleString(SimpleString::from("first")),
-                DataType::Integer(Integer::from(1)),
+            Array(vec![RespDataType::Map(Map::from(vec![
+                RespDataType::SimpleString(SimpleString::from("first")),
+                RespDataType::Integer(Integer::from(1)),
             ]))])
         );
     }
 
     #[test]
     fn parse_elements_recursive_con_set_anidado() {
-        let arr = Array(vec![DataType::Set(Set::from(vec![
-            DataType::SimpleString(SimpleString::from("Hello, World!")),
-            DataType::Integer(Integer::from(1)),
+        let arr = Array(vec![RespDataType::Set(Set::from(vec![
+            RespDataType::SimpleString(SimpleString::from("Hello, World!")),
+            RespDataType::Integer(Integer::from(1)),
         ]))]);
 
         let bytes: Vec<u8> = arr.into();
@@ -396,10 +410,30 @@ mod tests {
 
         assert_eq!(
             arr,
-            Array(vec![DataType::Set(Set::from(vec![
-                DataType::SimpleString(SimpleString::from("Hello, World!")),
-                DataType::Integer(Integer::from(1)),
+            Array(vec![RespDataType::Set(Set::from(vec![
+                RespDataType::SimpleString(SimpleString::from("Hello, World!")),
+                RespDataType::Integer(Integer::from(1)),
             ]))])
         );
+    }
+
+    #[test]
+    fn se_serializa_referencia_a_slice_de_bulk_strings_como_array() {
+        let arr_ref = &[
+            &BulkString::from("first"),
+            &BulkString::from("second"),
+            &BulkString::from("third"),
+        ];
+
+        let arr_owned = Array(vec![
+            BulkString::from("first").into(),
+            BulkString::from("second").into(),
+            BulkString::from("third").into(),
+        ]);
+
+        let ref_bytes = Array::to_resp_vec(arr_ref);
+        let owned_bytes = Vec::from(arr_owned);
+
+        assert_eq!(ref_bytes, owned_bytes);
     }
 }

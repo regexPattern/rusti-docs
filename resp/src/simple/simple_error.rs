@@ -2,7 +2,7 @@ use crate::error::Error;
 
 pub const PREFIX: u8 = b'-';
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct SimpleError {
     pub prefix: String,
     pub msg: Option<String>,

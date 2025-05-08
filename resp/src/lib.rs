@@ -1,13 +1,13 @@
-mod bulk;
+mod aggregate;
 mod error;
 mod simple;
 
-pub use bulk::*;
+pub use aggregate::*;
 pub use error::Error;
 pub use simple::*;
 
-#[derive(Debug, PartialEq)]
-pub enum DataType {
+#[derive(Debug, PartialEq, Clone)]
+pub enum RespDataType {
     Array(Array),
     Boolean(Boolean),
     BulkString(BulkString),
@@ -20,27 +20,27 @@ pub enum DataType {
     SimpleString(SimpleString),
 }
 
-impl From<DataType> for Vec<u8> {
-    fn from(dt: DataType) -> Self {
+impl From<RespDataType> for Vec<u8> {
+    fn from(dt: RespDataType) -> Self {
         match dt {
-            DataType::SimpleString(ss) => ss.into(),
-            DataType::BulkString(bs) => bs.into(),
-            DataType::SimpleError(se) => se.into(),
-            DataType::Integer(i) => i.into(),
-            DataType::Array(a) => a.into(),
-            DataType::Null => null::BYTES.into(),
-            DataType::Boolean(b) => b.into(),
-            DataType::Double(d) => d.into(),
-            DataType::Set(set) => set.into(),
-            DataType::Map(m) => m.into(),
+            RespDataType::SimpleString(ss) => ss.into(),
+            RespDataType::BulkString(bs) => bs.into(),
+            RespDataType::SimpleError(se) => se.into(),
+            RespDataType::Integer(i) => i.into(),
+            RespDataType::Array(a) => a.into(),
+            RespDataType::Null => null::BYTES.into(),
+            RespDataType::Boolean(b) => b.into(),
+            RespDataType::Double(d) => d.into(),
+            RespDataType::Set(set) => set.into(),
+            RespDataType::Map(m) => m.into(),
         }
     }
 }
 
-impl TryFrom<&[u8]> for DataType {
+impl TryFrom<&[u8]> for RespDataType {
     type Error = Error;
 
-    fn try_from(bytes: &[u8]) -> Result<DataType, Self::Error> {
+    fn try_from(bytes: &[u8]) -> Result<RespDataType, Self::Error> {
         match bytes.first() {
             Some(&simple_string::PREFIX) => Ok(Self::SimpleString(SimpleString::try_from(bytes)?)),
             Some(&bulk_string::PREFIX) => Ok(Self::BulkString(BulkString::try_from(bytes)?)),
@@ -54,5 +54,59 @@ impl TryFrom<&[u8]> for DataType {
             Some(&map::PREFIX) => Ok(Self::Map(Map::try_from(bytes)?)),
             _ => Err(Error::WrongPrefix),
         }
+    }
+}
+
+impl From<Array> for RespDataType {
+    fn from(arr: Array) -> Self {
+        Self::Array(arr)
+    }
+}
+
+impl From<Boolean> for RespDataType {
+    fn from(b: Boolean) -> Self {
+        Self::Boolean(b)
+    }
+}
+
+impl From<BulkString> for RespDataType {
+    fn from(bs: BulkString) -> Self {
+        Self::BulkString(bs)
+    }
+}
+
+impl From<Double> for RespDataType {
+    fn from(d: Double) -> Self {
+        Self::Double(d)
+    }
+}
+
+impl From<Integer> for RespDataType {
+    fn from(i: Integer) -> Self {
+        Self::Integer(i)
+    }
+}
+
+impl From<Map> for RespDataType {
+    fn from(m: Map) -> Self {
+        Self::Map(m)
+    }
+}
+
+impl From<Set> for RespDataType {
+    fn from(s: Set) -> Self {
+        Self::Set(s)
+    }
+}
+
+impl From<SimpleError> for RespDataType {
+    fn from(se: SimpleError) -> Self {
+        Self::SimpleError(se)
+    }
+}
+
+impl From<SimpleString> for RespDataType {
+    fn from(ss: SimpleString) -> Self {
+        Self::SimpleString(ss)
     }
 }

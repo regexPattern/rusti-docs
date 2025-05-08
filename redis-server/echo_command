@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+read -r -a words <<< "$*"
+count=${#words[@]}
+
+CRLF=$'\r\n'
+
+payload="*${count}${CRLF}"
+for w in "${words[@]}"; do
+  payload+="\$${#w}${CRLF}${w}${CRLF}"
+done
+
+printf '%s' "$payload"

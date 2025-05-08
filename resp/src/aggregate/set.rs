@@ -1,12 +1,12 @@
-use crate::DataType;
+use crate::RespDataType;
 use crate::error::Error;
 
 use super::Array;
 
 pub const PREFIX: u8 = b'~';
 
-#[derive(Debug, PartialEq)]
-pub struct Set(Vec<DataType>);
+#[derive(Debug, PartialEq, Clone)]
+pub struct Set(Vec<RespDataType>);
 
 impl TryFrom<&[u8]> for Set {
     type Error = Error;
@@ -17,8 +17,8 @@ impl TryFrom<&[u8]> for Set {
     }
 }
 
-impl From<Vec<DataType>> for Set {
-    fn from(elements: Vec<DataType>) -> Self {
+impl From<Vec<RespDataType>> for Set {
+    fn from(elements: Vec<RespDataType>) -> Self {
         Self(elements)
     }
 }
@@ -26,26 +26,36 @@ impl From<Vec<DataType>> for Set {
 impl From<Set> for Vec<u8> {
     fn from(s: Set) -> Self {
         let mut result = Vec::from(format!("{}{}\r\n", PREFIX as char, s.0.len()));
-
         for element in s.0 {
             result.extend(Vec::from(element));
         }
+        result
+    }
+}
 
+impl Set {
+    pub fn to_resp_vec(col: &std::collections::HashSet<super::BulkString>) -> Vec<u8> {
+        let mut result = Vec::from(format!("{}{}\r\n", PREFIX as char, col.len()));
+        for element in col {
+            result.extend(Vec::from(element));
+        }
         result
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{Array, DataType, Integer, SimpleString};
+    use std::collections::HashSet;
+
+    use crate::{Array, BulkString, Integer, RespDataType, SimpleString};
 
     use super::*;
 
     #[test]
     fn set_se_serializa_correctamente() {
         let s = Set(vec![
-            DataType::SimpleString(SimpleString::from("Hello, World!")),
-            DataType::Integer(Integer::from(1)),
+            RespDataType::SimpleString(SimpleString::from("Hello, World!")),
+            RespDataType::Integer(Integer::from(1)),
         ]);
 
         let bytes: Vec<_> = s.into();
@@ -65,10 +75,10 @@ mod tests {
     #[test]
     fn set_con_set_anidado_se_serializa_correctamente() {
         let s = Set(vec![
-            DataType::Set(Set(vec![DataType::SimpleString(SimpleString::from(
+            RespDataType::Set(Set(vec![RespDataType::SimpleString(SimpleString::from(
                 "Hello, World!",
             ))])),
-            DataType::Integer(Integer::from(1)),
+            RespDataType::Integer(Integer::from(1)),
         ]);
 
         let bytes: Vec<_> = s.into();
@@ -78,8 +88,8 @@ mod tests {
 
     #[test]
     fn set_con_array_anidado_se_serializa_correctamente() {
-        let s = Set(vec![DataType::Array(Array::from(vec![
-            DataType::SimpleString(SimpleString::from("Hello, World!")),
+        let s = Set(vec![RespDataType::Array(Array::from(vec![
+            RespDataType::SimpleString(SimpleString::from("Hello, World!")),
         ]))]);
 
         let bytes: Vec<u8> = s.into();
@@ -97,8 +107,8 @@ mod tests {
 
         assert_eq!(
             s,
-            Set(vec![DataType::Array(Array::from(vec![
-                DataType::SimpleString(SimpleString::from("Hello, World!")),
+            Set(vec![RespDataType::Array(Array::from(vec![
+                RespDataType::SimpleString(SimpleString::from("Hello, World!")),
             ]))])
         );
     }
@@ -110,5 +120,17 @@ mod tests {
         let s = Set::try_from(bytes.as_slice()).unwrap();
 
         assert_eq!(s, Set(vec![]));
+    }
+
+    #[test]
+    fn se_serializa_referencia_a_hashset_de_bulk_strings_como_set() {
+        let set_ref = &HashSet::from([BulkString::from("first")]);
+
+        let set_owned = Set(vec![BulkString::from("first").into()]);
+
+        let ref_bytes = Set::to_resp_vec(set_ref);
+        let owned_bytes = Vec::from(set_owned);
+
+        assert_eq!(ref_bytes, owned_bytes);
     }
 }

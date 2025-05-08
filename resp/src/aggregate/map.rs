@@ -1,11 +1,11 @@
-use crate::{DataType, Error};
+use crate::{Error, RespDataType};
 
 use super::Array;
 
 pub const PREFIX: u8 = b'%';
 
-#[derive(Debug, PartialEq)]
-pub struct Map(Vec<(DataType, DataType)>);
+#[derive(Debug, PartialEq, Clone)]
+pub struct Map(Vec<(RespDataType, RespDataType)>);
 
 impl TryFrom<&[u8]> for Map {
     type Error = Error;
@@ -16,8 +16,8 @@ impl TryFrom<&[u8]> for Map {
     }
 }
 
-impl From<Vec<DataType>> for Map {
-    fn from(elements: Vec<DataType>) -> Self {
+impl From<Vec<RespDataType>> for Map {
+    fn from(elements: Vec<RespDataType>) -> Self {
         let mut entries = Vec::with_capacity(elements.len());
         let mut elements = elements.into_iter();
 
@@ -32,18 +32,31 @@ impl From<Vec<DataType>> for Map {
 impl From<Map> for Vec<u8> {
     fn from(m: Map) -> Self {
         let mut result = Vec::from(format!("{}{}\r\n", PREFIX as char, m.0.len()));
-
         for (key, value) in m.0 {
             result.extend(Vec::from(key));
             result.extend(Vec::from(value));
         }
+        result
+    }
+}
 
+impl Map {
+    pub fn to_resp_vec(
+        col: &std::collections::HashMap<super::BulkString, super::BulkString>,
+    ) -> Vec<u8> {
+        let mut result = Vec::from(format!("{}{}\r\n", PREFIX as char, col.len()));
+        for (key, value) in col {
+            result.extend(Vec::from(key));
+            result.extend(Vec::from(value));
+        }
         result
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use crate::{BulkString, Integer, SimpleString};
 
     use super::*;
@@ -58,12 +71,12 @@ mod tests {
             m.0,
             [
                 (
-                    DataType::SimpleString(SimpleString::from("first")),
-                    DataType::Integer(Integer::from(1))
+                    RespDataType::SimpleString(SimpleString::from("first")),
+                    RespDataType::Integer(Integer::from(1))
                 ),
                 (
-                    DataType::SimpleString(SimpleString::from("second")),
-                    DataType::Integer(Integer::from(2))
+                    RespDataType::SimpleString(SimpleString::from("second")),
+                    RespDataType::Integer(Integer::from(2))
                 )
             ]
         );
@@ -79,12 +92,12 @@ mod tests {
             m.0,
             [
                 (
-                    DataType::SimpleString(SimpleString::from("first")),
-                    DataType::Integer(Integer::from(1))
+                    RespDataType::SimpleString(SimpleString::from("first")),
+                    RespDataType::Integer(Integer::from(1))
                 ),
                 (
-                    DataType::BulkString(BulkString::from("Hello, World!")),
-                    DataType::Integer(Integer::from(2))
+                    RespDataType::BulkString(BulkString::from("Hello, World!")),
+                    RespDataType::Integer(Integer::from(2))
                 )
             ]
         );
@@ -100,12 +113,12 @@ mod tests {
             m.0,
             [
                 (
-                    DataType::SimpleString(SimpleString::from("first")),
-                    DataType::Integer(Integer::from(1))
+                    RespDataType::SimpleString(SimpleString::from("first")),
+                    RespDataType::Integer(Integer::from(1))
                 ),
                 (
-                    DataType::SimpleString(SimpleString::from("second")),
-                    DataType::SimpleString(SimpleString::from("Hello, World!"))
+                    RespDataType::SimpleString(SimpleString::from("second")),
+                    RespDataType::SimpleString(SimpleString::from("Hello, World!"))
                 )
             ]
         );
@@ -128,29 +141,29 @@ mod tests {
             m.0,
             [
                 (
-                    DataType::SimpleString(SimpleString::from("first")),
-                    DataType::Map(Map([
+                    RespDataType::SimpleString(SimpleString::from("first")),
+                    RespDataType::Map(Map([
                         (
-                            DataType::SimpleString(SimpleString::from("one")),
-                            DataType::Integer(Integer::from(1))
+                            RespDataType::SimpleString(SimpleString::from("one")),
+                            RespDataType::Integer(Integer::from(1))
                         ),
                         (
-                            DataType::SimpleString(SimpleString::from("two")),
-                            DataType::Integer(Integer::from(2))
+                            RespDataType::SimpleString(SimpleString::from("two")),
+                            RespDataType::Integer(Integer::from(2))
                         ),
                     ]
                     .into()))
                 ),
                 (
-                    DataType::SimpleString(SimpleString::from("second")),
-                    DataType::Map(Map([
+                    RespDataType::SimpleString(SimpleString::from("second")),
+                    RespDataType::Map(Map([
                         (
-                            DataType::SimpleString(SimpleString::from("three")),
-                            DataType::Integer(Integer::from(3))
+                            RespDataType::SimpleString(SimpleString::from("three")),
+                            RespDataType::Integer(Integer::from(3))
                         ),
                         (
-                            DataType::SimpleString(SimpleString::from("four")),
-                            DataType::Integer(Integer::from(4))
+                            RespDataType::SimpleString(SimpleString::from("four")),
+                            RespDataType::Integer(Integer::from(4))
                         ),
                     ]
                     .into()))
@@ -172,12 +185,12 @@ mod tests {
     fn map_de_un_solo_tipo_se_serializa_correctamente() {
         let m = Map(vec![
             (
-                DataType::SimpleString(SimpleString::from("first")),
-                DataType::Integer(Integer::from(1)),
+                RespDataType::SimpleString(SimpleString::from("first")),
+                RespDataType::Integer(Integer::from(1)),
             ),
             (
-                DataType::SimpleString(SimpleString::from("second")),
-                DataType::Integer(Integer::from(2)),
+                RespDataType::SimpleString(SimpleString::from("second")),
+                RespDataType::Integer(Integer::from(2)),
             ),
         ]);
 
@@ -190,12 +203,12 @@ mod tests {
     fn map_con_keys_de_diferentes_tipos_se_serializa_correctamente() {
         let m = Map(vec![
             (
-                DataType::SimpleString(SimpleString::from("first")),
-                DataType::Integer(Integer::from(1)),
+                RespDataType::SimpleString(SimpleString::from("first")),
+                RespDataType::Integer(Integer::from(1)),
             ),
             (
-                DataType::BulkString(BulkString::from("Hello, World!")),
-                DataType::Integer(Integer::from(2)),
+                RespDataType::BulkString(BulkString::from("Hello, World!")),
+                RespDataType::Integer(Integer::from(2)),
             ),
         ]);
 
@@ -210,12 +223,12 @@ mod tests {
     fn map_con_values_de_diferentes_tipos_se_serializa_correctamente() {
         let m = Map(vec![
             (
-                DataType::SimpleString(SimpleString::from("first")),
-                DataType::Integer(Integer::from(1)),
+                RespDataType::SimpleString(SimpleString::from("first")),
+                RespDataType::Integer(Integer::from(1)),
             ),
             (
-                DataType::SimpleString(SimpleString::from("second")),
-                DataType::SimpleString(SimpleString::from("Hello, World!")),
+                RespDataType::SimpleString(SimpleString::from("second")),
+                RespDataType::SimpleString(SimpleString::from("Hello, World!")),
             ),
         ]);
 
@@ -230,28 +243,28 @@ mod tests {
     fn map_con_map_anidado_se_serializa_correctamente() {
         let m = Map(vec![
             (
-                DataType::SimpleString(SimpleString::from("first")),
-                DataType::Map(Map(vec![
+                RespDataType::SimpleString(SimpleString::from("first")),
+                RespDataType::Map(Map(vec![
                     (
-                        DataType::SimpleString(SimpleString::from("one")),
-                        DataType::Integer(Integer::from(1)),
+                        RespDataType::SimpleString(SimpleString::from("one")),
+                        RespDataType::Integer(Integer::from(1)),
                     ),
                     (
-                        DataType::SimpleString(SimpleString::from("two")),
-                        DataType::Integer(Integer::from(2)),
+                        RespDataType::SimpleString(SimpleString::from("two")),
+                        RespDataType::Integer(Integer::from(2)),
                     ),
                 ])),
             ),
             (
-                DataType::SimpleString(SimpleString::from("second")),
-                DataType::Map(Map(vec![
+                RespDataType::SimpleString(SimpleString::from("second")),
+                RespDataType::Map(Map(vec![
                     (
-                        DataType::SimpleString(SimpleString::from("three")),
-                        DataType::Integer(Integer::from(3)),
+                        RespDataType::SimpleString(SimpleString::from("three")),
+                        RespDataType::Integer(Integer::from(3)),
                     ),
                     (
-                        DataType::SimpleString(SimpleString::from("four")),
-                        DataType::Integer(Integer::from(4)),
+                        RespDataType::SimpleString(SimpleString::from("four")),
+                        RespDataType::Integer(Integer::from(4)),
                     ),
                 ])),
             ),
@@ -264,5 +277,20 @@ mod tests {
         let esperado = format!("%2\r\n+first\r\n{inner_1}+second\r\n{inner_2}").into_bytes();
 
         assert_eq!(bytes, esperado);
+    }
+
+    #[test]
+    fn se_serializa_referencia_a_hashmap_de_bulk_strings_como_map() {
+        let hashmap_ref = &HashMap::from([(BulkString::from("first"), BulkString::from("one"))]);
+
+        let map_owned = Map(vec![(
+            BulkString::from("first").into(),
+            BulkString::from("one").into(),
+        )]);
+
+        let ref_bytes = Map::to_resp_vec(hashmap_ref);
+        let owned_bytes = Vec::from(map_owned);
+
+        assert_eq!(ref_bytes, owned_bytes);
     }
 }

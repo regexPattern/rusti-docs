@@ -2,7 +2,7 @@ use crate::error::Error;
 
 pub const PREFIX: u8 = b':';
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Integer(i64);
 
 impl From<i64> for Integer {

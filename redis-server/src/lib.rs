@@ -1,7 +1,6 @@
 #![allow(dead_code, unused_variables)]
 
 pub mod cli;
-mod command;
 mod config;
 mod error;
 mod node;
