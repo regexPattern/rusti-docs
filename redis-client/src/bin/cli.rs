@@ -3,7 +3,7 @@ use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use redis_cli::command_sender::{self, CommandAction};
+use redis_client::command_sender::{self, CommandAction};
 
 fn main() {
     //pedimos comando inical
