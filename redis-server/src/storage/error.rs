@@ -18,19 +18,13 @@ impl std::fmt::Display for Error {
 impl From<Error> for SimpleError {
     fn from(err: Error) -> Self {
         match err {
-            Error::ValueNotAnInteger => SimpleError {
-                prefix: "ERROR".to_string(),
-                msg: Some("value is not an integer".to_string()), // TODO: aca realmente no cambio
-                                                                  // tengo prefix
-            },
-            Error::WrongNumberOfArgs => SimpleError {
-                prefix: "ERROR".to_string(),
-                msg: Some("wrong number of arguments for command".to_string()),
-            },
-            Error::WrongType => SimpleError {
-                prefix: "WRONGTYPE".to_string(),
-                msg: Some("operation against a key holding the wrong kind of value".to_string()),
-            },
+            Error::ValueNotAnInteger => SimpleError::from("ERROR value is not an integer"),
+            Error::WrongNumberOfArgs => {
+                SimpleError::from("ERROR wrong number of arguments for command")
+            }
+            Error::WrongType => SimpleError::from(
+                "WRONGTYPE operation against a key holding the wrong kind of value",
+            ),
         }
     }
 }

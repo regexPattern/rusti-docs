@@ -23,16 +23,17 @@ impl TryFrom<&[u8]> for Double {
 
 impl From<Double> for Vec<u8> {
     fn from(d: Double) -> Self {
-        let s = if d.0.is_infinite() && d.0.is_sign_positive() {
-            ",inf\r\n".to_string()
+        let d = if d.0.is_infinite() && d.0.is_sign_positive() {
+            "inf".to_string()
         } else if d.0.is_infinite() && d.0.is_sign_negative() {
-            ",-inf\r\n".to_string()
+            "-inf".to_string()
         } else if d.0.is_nan() {
-            ",nan\r\n".to_string()
+            "nan".to_string()
         } else {
-            format!(",{}\r\n", d.0)
+            format!("{}", d.0)
         };
-        s.into_bytes()
+
+        format!("{}{}\r\n", PREFIX as char, d).into_bytes()
     }
 }
 

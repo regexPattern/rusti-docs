@@ -63,7 +63,7 @@ impl Server {
             let node = Arc::clone(&self.node);
 
             self.thread_pool.execute(move || {
-                if let Err(err) = node.handle_conn(conn) {
+                if let Err(err) = node.handle_client_conn(conn) {
                     let _ = logger_tx.send(log::error!("{err}"));
                 }
             })?;

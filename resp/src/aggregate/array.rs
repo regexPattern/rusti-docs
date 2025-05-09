@@ -154,10 +154,7 @@ mod tests {
     fn array_de_multiples_tipos_se_serializa_correctamente() {
         let arr = Array(vec![
             RespDataType::Integer(Integer::from(-6)),
-            RespDataType::SimpleError(SimpleError {
-                prefix: "ERROR".to_string(),
-                msg: None,
-            }),
+            RespDataType::SimpleError(SimpleError::from("ERROR")),
             RespDataType::BulkString(BulkString::from("Hello, World!")),
         ]);
 
@@ -189,10 +186,7 @@ mod tests {
             ])),
             RespDataType::Array(Array(vec![
                 RespDataType::SimpleString(SimpleString::from("Hello")),
-                RespDataType::SimpleError(SimpleError {
-                    prefix: "World".to_string(),
-                    msg: None,
-                }),
+                RespDataType::SimpleError(SimpleError::from("World")),
             ])),
         ]);
 
@@ -252,10 +246,7 @@ mod tests {
             arr.0,
             [
                 RespDataType::Integer(Integer::from(-6)),
-                RespDataType::SimpleError(SimpleError {
-                    prefix: "ERROR".to_string(),
-                    msg: None
-                }),
+                RespDataType::SimpleError(SimpleError::from("ERROR")),
                 RespDataType::BulkString(BulkString::from("Hello, World!")),
             ]
         );
@@ -317,10 +308,7 @@ mod tests {
                 ])),
                 RespDataType::Array(Array(vec![
                     RespDataType::SimpleString(SimpleString::from("Hello")),
-                    RespDataType::SimpleError(SimpleError {
-                        prefix: "World".to_string(),
-                        msg: None,
-                    }),
+                    RespDataType::SimpleError(SimpleError::from("World")),
                 ])),
             ]
         );

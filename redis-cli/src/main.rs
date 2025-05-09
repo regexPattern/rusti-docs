@@ -3,115 +3,147 @@ use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use commands::Command;
-use commands::pub_sub::Subscribe;
+use redis_cli::command_sender::{self, CommandAction};
 
 fn main() {
+    //pedimos comando inical
+    print!("Ingrese comando: ");
+
+    // esto va a ser por un boton o algo que hardcodee el input...
+
+    std::io::Write::flush(&mut std::io::stdout()).unwrap();
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).unwrap();
+
+    let action = command_sender::parse_and_serialize_command(&input);
+
+    // una vez q sabemos que vamos a acer conectamos
     let server_addr = "127.0.0.1:6379";
     let stream = TcpStream::connect(server_addr).expect("No se pudo conectar al servidor Redis");
-    // println!("Conectado a {}", server_addr);
 
     let log_msg = log::info!("Conectado a {}", server_addr);
     println!("{}", log_msg);
 
-    let stream = Arc::new(Mutex::new(stream));
+    let stream: Arc<Mutex<TcpStream>> = Arc::new(Mutex::new(stream));
 
-    // Enviamos subscirbe con commands lib
-    {
-        let mut stream_guard = stream.lock().unwrap();
+    // Segun el comando enviamos  y manejamos
+    match action {
+        CommandAction::Send(bytes) => {
+            //para set get publish
+            let mut stream = stream.lock().unwrap();
+            stream.write_all(&bytes).unwrap();
+            stream.flush().unwrap();
+            println!("[DEBUG] Comando enviado esperando rta ...");
+            //aca llamariamos a un read line q va a ser una funcion
+            //que espera a que el server nos envie un mensaje. recien ahi salgo
 
-        let subscribe = Subscribe {
-            channels: vec![resp::BulkString::from("chan1")],
-        };
-        let cmd = Command::PubSub(subscribe.into());
-        let resp_bytes: Vec<u8> = cmd.into();
-
-        println!(
-            "{}",
-            log::info!(
-                "Comando SUBSCRIBE serializado: {:?}",
-                String::from_utf8_lossy(&resp_bytes)
-            )
-        );
-
-        stream_guard.write_all(&resp_bytes).unwrap();
-        stream_guard.flush().unwrap();
-    }
-
-    let stream_reader = Arc::clone(&stream);
-    let stream_writer = Arc::clone(&stream);
-
-    // Thread para lectura del stream
-    let reader_handle = thread::spawn(move || {
-        let stream = stream_reader.lock().unwrap();
-        let reader = BufReader::new(stream.try_clone().unwrap());
-        drop(stream);
-
-        for line in reader.lines() {
-            match line {
-                Ok(msg) => println!("\n[RECV] {}", msg),
-                Err(e) => {
-                    eprintln!("[ERROR LECTURA] {}", e);
-                    break;
-                }
-            }
+            // como los threads se crean solo en el caso de subscribe abajo, nou pronlem :)))
         }
-    });
+        CommandAction::HandleSubscribe(bytes, _channels) => {
+            let stream_reader = Arc::clone(&stream);
+            let stream_writer = Arc::clone(&stream);
 
-    // Thread para escritura de comandos
-    let writer_handle = thread::spawn(move || {
-        loop {
-            print!("Ingrese comando: ");
-            std::io::Write::flush(&mut std::io::stdout()).unwrap();
+            // mandamos el SUBSCRIBE primero
+            {
+                let mut stream = stream_writer.lock().unwrap();
+                stream.write_all(&bytes).unwrap();
+                stream.flush().unwrap();
+                let log_msg = log::info!("[DEBUG] SUBSCRIBE enviado. escuhando al server...");
+                println!("{}", log_msg);
+            }
 
-            let mut input = String::new();
-            std::io::stdin().read_line(&mut input).unwrap();
+            // Thread para lectura del stream
+            let reader_handle = thread::spawn(move || {
+                let stream_reader = {
+                    let stream_lock = stream_reader.lock().unwrap();
+                    stream_lock.try_clone().unwrap()
+                };
 
-            let input_trimmed = input.trim();
-            println!("[DEBUG] Antes del lock");
-            let mut stream = stream_writer.lock().unwrap();
-
-            let mut parts = input_trimmed.split_whitespace();
-            if let Some(cmd) = parts.next() {
-                if cmd.eq_ignore_ascii_case("subscribe") {
-                    let channels: Vec<resp::BulkString> =
-                        parts.map(resp::BulkString::from).collect();
-                    if !channels.is_empty() {
-                        let subscribe = Subscribe { channels };
-                        let cmd = Command::PubSub(subscribe.into());
-                        let resp_bytes: Vec<u8> = cmd.into();
-                        println!(
-                            "[DEBUG] Serializado: {:?}",
-                            String::from_utf8_lossy(&resp_bytes)
-                        );
-
-                        if let Err(e) = stream.write_all(&resp_bytes) {
-                            eprintln!("[ERROR ESCRITURA] {}", e);
+                let reader = BufReader::new(stream_reader);
+                for line in reader.lines() {
+                    //TODO REVISAR READER .LINES OK?
+                    match line {
+                        Ok(msg) => println!("[PUBSUB] {}", msg),
+                        Err(e) => {
+                            eprintln!("[ERROR LECTURA] {}", e);
                             break;
                         }
-                        if let Err(e) = stream.flush() {
-                            eprintln!("[ERROR FLUSH] {}", e);
-                            break;
-                        }
-                        println!("[DEBUG] Después de flush");
-                        continue;
                     }
                 }
-            }
+            });
+            // Thread para escritura de comandos
+            let writer_handle = thread::spawn(move || {
+                loop {
+                    println!(
+                        "\n--- consola esperando ingreso de comando (subscribe/unsubscribe/quit): ---\n"
+                    );
 
-            //por ahora en otros comandos mando solo bytes
-            if let Err(e) = writeln!(stream, "{}", input_trimmed) {
-                eprintln!("[ERROR ESCRITURA] {}", e);
-                break;
-            }
-            if let Err(e) = stream.flush() {
-                eprintln!("[ERROR FLUSH] {}", e);
-                break;
-            }
-            println!("[DEBUG] Después de flush");
+                    // esto va a ser por un boton o algo que hardcodee el input...
+
+                    std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                    let mut input = String::new();
+                    std::io::stdin().read_line(&mut input).unwrap();
+
+                    let action = command_sender::parse_and_serialize_command(&input);
+                    match action {
+                        CommandAction::Send(bytes) => {
+                            //no debiera pero si lo hace nos devolvera error y lo leemos
+                            //en el reader del thread
+                            let mut stream = stream_writer.lock().unwrap();
+                            stream.write_all(&bytes).unwrap();
+                            stream.flush().unwrap();
+                        }
+                        CommandAction::HandleUnsubscribe(bytes, _channels) => {
+                            let mut stream = stream_writer.lock().unwrap();
+                            stream.write_all(&bytes).unwrap();
+                            stream.flush().unwrap();
+                            println!("[DEBUG] UNSUBSCRIBE enviado.");
+                        }
+                        CommandAction::Quit => {
+                            println!("Cerrando conexión (quit).");
+                            break;
+                        }
+                        CommandAction::Unknown(cmd) => {
+                            eprintln!("Comando no reconocido: {}", cmd);
+                        }
+                        CommandAction::HandleSubscribe(bytes, _channels) => {
+                            // println!(
+                            //     "{}",
+                            //     log::info!(
+                            //         "Comando SUBSCRIBE serializado: {:?}",
+                            //         String::from_utf8_lossy(&bytes)
+                            //     )
+                            // );
+
+                            //manjear suscripciones aca en algun atributo del cliente eso falata
+                            //crearemos una entidad?
+
+                            {
+                                let mut stream = stream_writer.lock().unwrap();
+                                println!("[DEBUG] SUBSCRIBE ANIDADO: ");
+                                stream.write_all(&bytes).unwrap();
+                                stream.flush().unwrap();
+                                println!("[DEBUG] SUBSCRIBE ANIDADO enviado");
+                            }
+                        }
+                    }
+                }
+            });
+
+            reader_handle.join().unwrap();
+            writer_handle.join().unwrap();
         }
-    });
-
-    reader_handle.join().unwrap();
-    writer_handle.join().unwrap();
+        CommandAction::HandleUnsubscribe(bytes, _channels) => {
+            let mut stream = stream.lock().unwrap();
+            stream.write_all(&bytes).unwrap();
+            stream.flush().unwrap();
+            println!("[DEBUG] UNSUBSCRIBE enviado.");
+        }
+        CommandAction::Quit => {
+            println!("Cerrando conexión.");
+        }
+        CommandAction::Unknown(cmd) => {
+            eprintln!("Comando no reconocido: {}", cmd);
+        }
+    }
 }

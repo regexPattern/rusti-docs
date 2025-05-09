@@ -1,3 +1,5 @@
+mod error;
+
 use std::{
     sync::{
         Arc, Mutex,
@@ -6,11 +8,7 @@ use std::{
     thread,
 };
 
-#[derive(Debug)]
-pub enum Error {
-    SendError(String),
-    NoSender,
-}
+pub use error::Error;
 
 #[derive(Debug)]
 pub struct ThreadPool {

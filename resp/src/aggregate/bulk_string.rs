@@ -9,33 +9,13 @@ pub const PREFIX: u8 = b'$';
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct BulkString(String);
 
-impl From<&str> for BulkString {
-    fn from(content: &str) -> Self {
-        Self(content.to_string())
+impl BulkString {
+    pub fn len(&self) -> usize {
+        self.0.len()
     }
-}
 
-impl From<String> for BulkString {
-    fn from(content: String) -> Self {
-        Self(content)
-    }
-}
-
-impl From<&String> for BulkString {
-    fn from(content: &String) -> Self {
-        Self(content.to_string())
-    }
-}
-
-impl From<BulkString> for String {
-    fn from(bs: BulkString) -> Self {
-        bs.0
-    }
-}
-
-impl<'b> From<&'b BulkString> for &'b str {
-    fn from(bs: &'b BulkString) -> &'b str {
-        bs.0.as_str()
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
@@ -86,6 +66,36 @@ impl From<BulkString> for Vec<u8> {
 impl fmt::Display for BulkString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl From<&str> for BulkString {
+    fn from(content: &str) -> Self {
+        Self(content.to_string())
+    }
+}
+
+impl From<String> for BulkString {
+    fn from(content: String) -> Self {
+        Self(content)
+    }
+}
+
+impl From<&String> for BulkString {
+    fn from(content: &String) -> Self {
+        Self(content.to_string())
+    }
+}
+
+impl From<BulkString> for String {
+    fn from(bs: BulkString) -> Self {
+        bs.0
+    }
+}
+
+impl<'b> From<&'b BulkString> for &'b str {
+    fn from(bs: &'b BulkString) -> &'b str {
+        bs.0.as_str()
     }
 }
 

@@ -28,7 +28,7 @@ impl TryFrom<&[u8]> for Integer {
 
 impl From<Integer> for Vec<u8> {
     fn from(i: Integer) -> Self {
-        let mut resp_int = format!(":{}\r\n", i.0);
+        let mut resp_int = format!("{}{}\r\n", PREFIX as char, i.0);
         if i.0 > 0 {
             resp_int.insert(1, '+');
         }

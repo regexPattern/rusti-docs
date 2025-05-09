@@ -5,6 +5,22 @@ pub const PREFIX: u8 = b'+';
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct SimpleString(String);
 
+impl TryFrom<&[u8]> for SimpleString {
+    type Error = Error;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        let data_bytes = super::data_subslice(bytes, PREFIX)?;
+        let data = String::from_utf8(data_bytes.to_vec()).map_err(|_| Error::InvalidEncoding)?;
+        Ok(Self(data))
+    }
+}
+
+impl From<SimpleString> for Vec<u8> {
+    fn from(ss: SimpleString) -> Self {
+        format!("{}{}\r\n", PREFIX as char, ss.0).into_bytes()
+    }
+}
+
 impl From<&str> for SimpleString {
     fn from(content: &str) -> Self {
         Self(content.to_string())
@@ -26,24 +42,6 @@ impl From<&String> for SimpleString {
 impl From<SimpleString> for String {
     fn from(ss: SimpleString) -> Self {
         ss.0
-    }
-}
-
-impl TryFrom<&[u8]> for SimpleString {
-    type Error = Error;
-
-    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let data_bytes = super::data_subslice(bytes, PREFIX)?;
-        let data = String::from_utf8(data_bytes.to_vec()).map_err(|_| Error::InvalidEncoding)?;
-        Ok(Self(data))
-    }
-}
-
-impl From<SimpleString> for Vec<u8> {
-    fn from(ss: SimpleString) -> Self {
-        let resp_str = format!("+{}\r\n", ss.0);
-        let bytes = resp_str.as_bytes();
-        bytes.into()
     }
 }
 

@@ -12,37 +12,36 @@ use std::{
 use commands::Command;
 use error::Error;
 use log::LogMsg;
-use pub_sub::Broker;
+use pub_sub::PubSubBroker;
+use resp::SimpleError;
 
 use crate::storage::{self, Shard};
 
 #[derive(Debug)]
 pub struct Node {
-    broker_tx: Sender<pub_sub::Envelope>,
-    storage_tx: Sender<storage::Envelope>,
-    _logger_tx: Sender<LogMsg>,
+    broker_tx: Sender<pub_sub::PubSubEnvelope>,
+    storage_tx: Sender<storage::StorageEnvelope>,
+    logger_tx: Sender<LogMsg>,
 }
 
 impl Node {
     pub fn new(logger_tx: Sender<LogMsg>) -> Self {
-        let (broker_tx, broker_rx) = mpsc::channel::<pub_sub::Envelope>();
-        let (storage_tx, storage_rx) = mpsc::channel::<storage::Envelope>();
+        let (broker_tx, broker_rx) = mpsc::channel::<pub_sub::PubSubEnvelope>();
+        let (storage_tx, storage_rx) = mpsc::channel::<storage::StorageEnvelope>();
 
         let node = Self {
             broker_tx,
             storage_tx,
-            _logger_tx: logger_tx.clone(),
+            logger_tx: logger_tx.clone(),
         };
 
-        // pub-sub-actor/broker
         thread::spawn(move || {
-            let mut broker = Broker::new(logger_tx);
+            let mut broker = PubSubBroker::new(logger_tx);
             while let Ok(envel) = broker_rx.recv() {
-                broker.process(envel);
+                broker.process(envel).unwrap();
             }
         });
 
-        // storage-actor
         thread::spawn(move || {
             let mut shard = Shard::new();
             while let Ok(envel) = storage_rx.recv() {
@@ -53,22 +52,37 @@ impl Node {
         node
     }
 
-    pub fn handle_conn(&self, conn: TcpStream) -> Result<(), Error> {
-        // let mut buffer = [0u8; 1024];
-        // let n = stream.read(&mut buffer).unwrap();
-        // let bytes = &buffer[..n];
+    pub fn handle_client_conn(&self, client_conn: TcpStream) -> Result<(), Error> {
+        let mut reader = BufReader::new(client_conn);
 
-        let mut reader = BufReader::new(conn.try_clone().unwrap());
-        let bytes = reader.fill_buf().unwrap();
+        let bytes = match reader.fill_buf() {
+            Ok(bytes) if !bytes.is_empty() => bytes,
+            Ok(_) => todo!(),
+            Err(_) => todo!(),
+        };
 
-        let cmd = Command::try_from(bytes).unwrap();
+        self.logger_tx
+            .send(log::info!("recibido {} bytes", bytes.len()))?;
+
+        let cmd = Command::try_from(bytes);
 
         let length = bytes.len();
         reader.consume(length);
 
-        self.execute_command(conn, cmd).unwrap();
+        let mut client_conn = reader.into_inner();
 
-        Ok(())
+        match cmd {
+            Ok(cmd) => {
+                self.execute_command(client_conn, cmd).unwrap();
+                Ok(())
+            }
+            Err(err) => {
+                client_conn
+                    .write_all(&Vec::from(SimpleError::from(err)))
+                    .unwrap();
+                Ok(())
+            }
+        }
     }
 
     fn execute_command(&self, mut client_conn: TcpStream, cmd: Command) -> Result<(), ()> {
@@ -77,7 +91,7 @@ impl Node {
         match cmd {
             Command::Storage(cmd) => {
                 self.storage_tx
-                    .send(storage::Envelope { cmd, reply_tx })
+                    .send(storage::StorageEnvelope { cmd, reply_tx })
                     .unwrap();
 
                 while let Ok(reply) = reply_rx.recv() {
@@ -86,19 +100,12 @@ impl Node {
                         Err(_hash) => todo!("TRAER VALOR DEL NODO QUE TIENE EL HASH"),
                     };
 
-                    // TEMP: solo hacemos esto para imprimir los valores crudos en el cliente
-                    // mientras no tenemos forma de tomar los tipos de resp e imprimirlos.
-                    let reply_repr = String::from_utf8(reply)
-                        .unwrap()
-                        .replace("\r", "\\r")
-                        .replace("\n", "\\n");
-
-                    client_conn.write_all(reply_repr.as_bytes()).unwrap();
+                    client_conn.write_all(&reply).unwrap();
                 }
             }
             Command::PubSub(cmd) => {
                 self.broker_tx
-                    .send(pub_sub::Envelope { client_conn, cmd })
+                    .send(pub_sub::PubSubEnvelope { client_conn, cmd })
                     .unwrap();
             }
             Command::Cluster(_command) => todo!(),

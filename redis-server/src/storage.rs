@@ -20,7 +20,7 @@ pub struct Shard {
 }
 
 #[derive(Debug)]
-pub struct Envelope {
+pub struct StorageEnvelope {
     pub cmd: StorageCommand,
     pub reply_tx: Sender<Result<Vec<u8>, u16>>,
 }
@@ -36,7 +36,7 @@ impl Shard {
         Self { hash_slots }
     }
 
-    pub fn process(&mut self, envel: Envelope) {
+    pub fn process(&mut self, envel: StorageEnvelope) {
         let reply = match envel.cmd {
             StorageCommand::Del(Del { keys }) => todo!(),
 
