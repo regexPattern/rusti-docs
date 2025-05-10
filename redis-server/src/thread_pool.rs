@@ -77,7 +77,7 @@ impl Worker {
                 let job = match receiver.lock() {
                     Ok(receiver_guard) => receiver_guard.recv(),
                     Err(e) => {
-                        println!(
+                        print!(
                             "{}",
                             log::error!("worker {id} fallo en adquirir lock del receiver: {e}")
                         );
@@ -87,11 +87,11 @@ impl Worker {
 
                 match job {
                     Ok(job) => {
-                        println!("{}", log::debug!("worker {id} ejecutando tarea"));
+                        print!("{}", log::debug!("worker {id} ejecutando tarea"));
                         job();
                     }
                     Err(_) => {
-                        println!("{}", log::debug!("worker {id} desconectado"));
+                        print!("{}", log::debug!("worker {id} desconectado"));
                         break;
                     }
                 }

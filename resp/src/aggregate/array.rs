@@ -192,7 +192,7 @@ mod tests {
 
         let bytes: Vec<u8> = arr.into();
 
-        let inner_1 = "*3\r\n:+1\r\n:+2\r\n:-1\r\n";
+        let inner_1 = "*3\r\n:1\r\n:2\r\n:-1\r\n";
         let inner_2 = "*2\r\n+Hello\r\n-World\r\n";
         let outer = format!("*2\r\n{inner_1}{inner_2}").into_bytes();
 
@@ -261,7 +261,7 @@ mod tests {
         ]);
 
         let bytes: Vec<u8> = arr.into();
-        let esperado = b"*3\r\n:+42\r\n_\r\n$5\r\nhello\r\n";
+        let esperado = b"*3\r\n:42\r\n_\r\n$5\r\nhello\r\n";
         assert_eq!(&bytes, esperado);
     }
 
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn arrays_anidados_se_deserializan_correctamente() {
-        let inner_1 = "*3\r\n:+1\r\n:+2\r\n:-1\r\n";
+        let inner_1 = "*3\r\n:1\r\n:2\r\n:-1\r\n";
         let inner_2 = "*2\r\n+Hello\r\n-World\r\n";
         let outer = format!("*2\r\n{inner_1}{inner_2}");
 

@@ -196,7 +196,7 @@ mod tests {
 
         let bytes: Vec<_> = m.into();
 
-        assert_eq!(&bytes, b"%2\r\n+first\r\n:+1\r\n+second\r\n:+2\r\n");
+        assert_eq!(&bytes, b"%2\r\n+first\r\n:1\r\n+second\r\n:2\r\n");
     }
 
     #[test]
@@ -214,7 +214,7 @@ mod tests {
 
         let bytes: Vec<_> = m.into();
 
-        let esperado = b"%2\r\n+first\r\n:+1\r\n$13\r\nHello, World!\r\n:+2\r\n";
+        let esperado = b"%2\r\n+first\r\n:1\r\n$13\r\nHello, World!\r\n:2\r\n";
 
         assert_eq!(&bytes, esperado);
     }
@@ -234,7 +234,7 @@ mod tests {
 
         let bytes: Vec<_> = m.into();
 
-        let esperado = b"%2\r\n+first\r\n:+1\r\n+second\r\n+Hello, World!\r\n";
+        let esperado = b"%2\r\n+first\r\n:1\r\n+second\r\n+Hello, World!\r\n";
 
         assert_eq!(&bytes, esperado);
     }
@@ -272,8 +272,8 @@ mod tests {
 
         let bytes: Vec<_> = m.into();
 
-        let inner_1 = "%2\r\n+one\r\n:+1\r\n+two\r\n:+2\r\n";
-        let inner_2 = "%2\r\n+three\r\n:+3\r\n+four\r\n:+4\r\n";
+        let inner_1 = "%2\r\n+one\r\n:1\r\n+two\r\n:2\r\n";
+        let inner_2 = "%2\r\n+three\r\n:3\r\n+four\r\n:4\r\n";
         let esperado = format!("%2\r\n+first\r\n{inner_1}+second\r\n{inner_2}").into_bytes();
 
         assert_eq!(bytes, esperado);

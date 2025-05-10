@@ -60,7 +60,7 @@ mod tests {
 
         let bytes: Vec<_> = s.into();
 
-        assert_eq!(bytes, b"~2\r\n+Hello, World!\r\n:+1\r\n");
+        assert_eq!(bytes, b"~2\r\n+Hello, World!\r\n:1\r\n");
     }
 
     #[test]
@@ -83,7 +83,7 @@ mod tests {
 
         let bytes: Vec<_> = s.into();
 
-        assert_eq!(bytes, b"~2\r\n~1\r\n+Hello, World!\r\n:+1\r\n");
+        assert_eq!(bytes, b"~2\r\n~1\r\n+Hello, World!\r\n:1\r\n");
     }
 
     #[test]
