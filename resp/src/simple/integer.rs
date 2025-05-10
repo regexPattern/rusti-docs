@@ -28,11 +28,7 @@ impl TryFrom<&[u8]> for Integer {
 
 impl From<Integer> for Vec<u8> {
     fn from(i: Integer) -> Self {
-        let mut resp_int = format!("{}{}\r\n", PREFIX as char, i.0);
-        if i.0 > 0 {
-            resp_int.insert(1, '+');
-        }
-        resp_int.into_bytes()
+        format!("{}{}\r\n", PREFIX as char, i.0).into_bytes()
     }
 }
 
@@ -46,7 +42,7 @@ mod test {
 
         let bytes: Vec<u8> = i.into();
 
-        assert_eq!(bytes, b":+42\r\n");
+        assert_eq!(bytes, b":42\r\n");
     }
 
     #[test]
@@ -69,7 +65,7 @@ mod test {
 
     #[test]
     fn integer_se_deserializa_correctamente() {
-        let bytes = ":+42\r\n".as_bytes();
+        let bytes = ":42\r\n".as_bytes();
 
         let integer = Integer::try_from(bytes).unwrap();
 
@@ -83,17 +79,6 @@ mod test {
         let err = Integer::try_from(bytes).unwrap_err();
 
         assert_eq!(err, Error::InvalidEncoding);
-    }
-
-    #[test]
-    fn integer_sin_signo_se_deserializa_correctamente() {
-        // Según el protocolo RESP si no aclaro el signo asume que es positivo.
-
-        let bytes = ":42\r\n".as_bytes();
-
-        let i = Integer::try_from(bytes).unwrap();
-
-        assert_eq!(i, Integer::from(42));
     }
 
     #[test]
