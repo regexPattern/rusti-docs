@@ -62,7 +62,7 @@ impl Node {
         };
 
         self.logger_tx
-            .send(log::info!("recibido {} bytes", bytes.len()))?;
+            .send(log::debug!("recibidos {} bytes", bytes.len()))?;
 
         let cmd = Command::try_from(bytes);
 

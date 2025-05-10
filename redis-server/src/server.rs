@@ -26,16 +26,13 @@ pub struct Server {
 
 impl Server {
     pub fn new(mut config: Config) -> Self {
-        let (logger_tx, logger_rx) = mpsc::channel();
+        let (logger_tx, logger_rx) = mpsc::channel::<LogMsg>();
 
-        // logger-actor
         thread::spawn(move || {
             while let Ok(msg) = logger_rx.recv() {
-                if let Err(err) = writeln!(config.logfile, "{msg}") {
+                if let Err(err) = write!(config.logfile, "{msg}") {
                     eprintln!("{}", log::error!("error escribiendo logs: {err}"));
-
-                    // TODO: Matar el server si el logger falla.
-                    break;
+                    break; // TODO: Matar el server si el logger falla.
                 }
             }
         });
