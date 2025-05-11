@@ -12,9 +12,9 @@ use std::{
 };
 
 use crate::error::Error;
-use commands::{Command, pub_sub::*};
+use redis_cmd::{Command, pub_sub::*};
 use log::LogMsg;
-use resp::{Array, BulkString, Integer, SimpleError};
+use redis_resp::{Array, BulkString, Integer, SimpleError};
 
 // use uuid::Uuid;
 

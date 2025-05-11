@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-commands = { path = "../commands" }
 log = { path = "../log" }
-resp = { path = "../resp"}
+redis_cmd = { path = "../redis-cmd" }
+redis_resp = { path = "../redis-resp"}

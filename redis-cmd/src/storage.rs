@@ -7,7 +7,7 @@ mod string;
 pub use generic::*;
 pub use hash::*;
 pub use list::*;
-use resp::BulkString;
+use redis_resp::BulkString;
 pub use set::*;
 pub use string::*;
 

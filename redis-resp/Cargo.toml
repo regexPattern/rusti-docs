@@ -1,7 +1,6 @@
 [package]
-name = "redis_gui"
+name = "redis_resp"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-redis_lib = { path = "../redis-lib" }

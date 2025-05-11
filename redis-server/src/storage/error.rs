@@ -1,4 +1,4 @@
-use resp::SimpleError;
+use redis_resp::SimpleError;
 
 #[derive(Debug)]
 pub enum Error {

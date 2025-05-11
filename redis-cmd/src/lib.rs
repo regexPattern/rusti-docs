@@ -10,7 +10,7 @@ pub use error::Error;
 use pub_sub::*;
 use storage::*;
 
-use resp::{Array, RespDataType};
+use redis_resp::{Array, RespDataType};
 
 #[derive(Debug, PartialEq)]
 pub enum Command {

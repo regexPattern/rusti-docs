@@ -1,6 +1,6 @@
 use std::fmt;
 
-use resp::SimpleError;
+use redis_resp::SimpleError;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -8,7 +8,7 @@ pub enum Error {
     MissingCommand,
     CommandNotSupported,
     MissingArgument,
-    RespError(resp::Error),
+    RespError(redis_resp::Error),
 }
 
 impl std::error::Error for Error {}
@@ -25,8 +25,8 @@ impl fmt::Display for Error {
     }
 }
 
-impl From<resp::Error> for Error {
-    fn from(err: resp::Error) -> Self {
+impl From<redis_resp::Error> for Error {
+    fn from(err: redis_resp::Error) -> Self {
         Self::RespError(err)
     }
 }

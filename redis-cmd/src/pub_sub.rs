@@ -1,5 +1,5 @@
 use crate::Error;
-use resp::BulkString;
+use redis_resp::BulkString;
 
 /// Comandos de Pub/Sub.
 #[derive(Debug, PartialEq)]

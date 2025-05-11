@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-commands = { path = "../commands" }
 crc16 = "0.4"
 log = { path = "../log" }
-resp = { path = "../resp" }
+redis_cmd = { path = "../redis-cmd" }
+redis_resp = { path = "../redis-resp" }
 uuid = { version = "1.16.0", features = ["v4"] }

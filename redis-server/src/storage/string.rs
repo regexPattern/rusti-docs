@@ -1,4 +1,4 @@
-use resp::{BulkString, RespDataType, SimpleString};
+use redis_resp::{BulkString, RespDataType, SimpleString};
 
 use super::{Shard, data_type::RedisDataType};
 

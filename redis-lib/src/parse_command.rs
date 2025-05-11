@@ -1,10 +1,10 @@
 //esta puede quedar para mandar cosas por consola facilmente.,..
 //no boooom!!
 
-use commands::Command;
-use resp::{Array, BulkString, RespDataType};
+use redis_cmd::Command;
+use redis_resp::{Array, BulkString, RespDataType};
 
-pub fn parse_command(input: &str) -> Result<Command, commands::Error> {
+pub fn parse_command(input: &str) -> Result<Command, redis_cmd::Error> {
     let args: Vec<_> = input
         .split_whitespace()
         .map(BulkString::from)
