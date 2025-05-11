@@ -11,8 +11,8 @@ use std::{
     thread,
 };
 
-use commands::{Command, pub_sub::*};
 use crate::error::Error;
+use commands::{Command, pub_sub::*};
 use log::LogMsg;
 use resp::{Array, BulkString, Integer, SimpleError};
 
@@ -93,19 +93,13 @@ impl PubSubBroker {
         &mut self,
         server_conn: TcpStream,
         logger_tx: Sender<LogMsg>,
-
         //  reply_pub_sub_tx // POR ESTE LE MANDO REPLIES A LA GUI
-
-        
     ) -> Result<(TcpStream, Sender<Vec<u8>>), Error> {
-        
         // CUANDO ME MANDAN SUBSCRIBE CREO UM CHANNEL ESPECIAL PARA QUE EL CLIENYE ME PUEDA
         //  ENVIARRRR COMANDOS  Y LE PASO  EL cmd_pub_sub_tx
         //( SALVO Q SEA POSIBLE CREARLO ALLA Y PASARLKO CON OWNERSAHIP PARA ACA PERO ES HORRIBLE)
-        
-        
-        // let (cmd_pub_sub_tx, cmd_pub_sub_rx) = mpsc::channel::<PubSubEnvelope>(  );
 
+        // let (cmd_pub_sub_tx, cmd_pub_sub_rx) = mpsc::channel::<PubSubEnvelope>(  );
 
         let (client_tx, client_rx) = mpsc::channel::<Vec<u8>>();
 
@@ -116,14 +110,13 @@ impl PubSubBroker {
         let client_tx_publisher = client_tx.clone();
         let logger_tx_publisher = logger_tx.clone();
 
-
         //thread de lectura de publishes de channels del servidor...
-        thread::spawn(move || { 
+        thread::spawn(move || {
             // THREAD  PARA  ESUCHAR PUBLISHES  DE LOS CHANNELS  A LOS Q ME SUBSCRIBI
-            
-            // ESTE  ESUCHA EN UN CLIENT_SERVER_RX Q SE CREA AQI Y VEV AQUI 
-        
-            //reply_pub_sub_tx POR ESTE LE MANDO LOS MSJS que llegan por publish A LA GUIA 
+
+            // ESTE  ESUCHA EN UN CLIENT_SERVER_RX Q SE CREA AQI Y VEV AQUI
+
+            //reply_pub_sub_tx POR ESTE LE MANDO LOS MSJS que llegan por publish A LA GUIA
             // este me lo paso por parametro...
 
             for message in client_rx {
@@ -151,10 +144,9 @@ impl PubSubBroker {
                     //  IMPORTANTE
                     //acabo de darme cuenta q borre todas las fucniones que hacian reply
                     /// esas funciones
-                    // ESCRIBEMN  A LA INTERFAZ  LA RTA  DEL SERVIDOR 
+                    // ESCRIBEMN  A LA INTERFAZ  LA RTA  DEL SERVIDOR
                     // POR ACAAAAAA
                     // reply_pub_sub_tx
-
                     break;
                 }
             }
@@ -165,7 +157,7 @@ impl PubSubBroker {
         let logger_tx_listener = logger_tx.clone();
 
         thread::spawn(move || {
-            // EN ESTE THREAD ESCUCHO LOS COMANDOS POR EL CHANNEL QUE CREE ANTES  
+            // EN ESTE THREAD ESCUCHO LOS COMANDOS POR EL CHANNEL QUE CREE ANTES
             //cmd_pub_sub_rx
             // al cliente le devuelvo el senderrrr xa q l tenga yu me peuda enviuars comamndps!!
             // cmd_pub_sub_tx
@@ -179,23 +171,18 @@ impl PubSubBroker {
                 &logger_tx_listener,
             ) {
                 logger_tx_listener
-                    .send(log::error!(
-                        "error escuchando stream del SERVIDOR {err}"
-                    ))
+                    .send(log::error!("error escuchando stream del SERVIDOR {err}"))
                     .unwrap();
             }
         });
 
-        logger_tx.send(log::info!(
-            "manteniendo viva conexión de servidor ",
-        ))?;
+        logger_tx.send(log::info!("manteniendo viva conexión de servidor ",))?;
 
         Ok((server_conn, client_tx))
-        
+
         //CLAAAAAAAAARO ES TAN PARECIDO  QUE EN VEZ DE DEVOLVER EL STREAM  ESTOY DEVOLVIEDNO
         // EL CHANNEL POR EL QUE LE HABLO A LA GUI
         //ok(cmd_pub_sub_tx)
-
     }
 
     fn listen_server_conn(
@@ -206,8 +193,7 @@ impl PubSubBroker {
         state: &Arc<Mutex<State>>,
         logger_tx: &Sender<LogMsg>,
     ) -> Result<(), Error> {
-
-        // EN ESTE THREAD ESCUCHO LOS COMANDOS POR EL CHANNEL QUE CREE ANTES  
+        // EN ESTE THREAD ESCUCHO LOS COMANDOS POR EL CHANNEL QUE CREE ANTES
         //cmd_pub_sub_rx
         // al cliente le devuelvo el senderrrr xa q l tenga yu me peuda enviuars comamndps!!
         // cmd_pub_sub_tx
@@ -249,9 +235,7 @@ impl PubSubBroker {
         let mut state = state.lock()?;
 
         for chan_name in channels {
-            logger_tx.send(log::info!(
-                "cliente suscrito al canal {chan_name}",
-            ))?;
+            logger_tx.send(log::info!("cliente suscrito al canal {chan_name}",))?;
 
             let chan_subs = state.entry(chan_name.clone()).or_default();
             chan_subs.insert(client_tx.clone());
@@ -313,5 +297,4 @@ impl PubSubBroker {
 
         Ok(())
     }
-
 }

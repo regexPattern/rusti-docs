@@ -20,7 +20,7 @@ impl std::error::Error for Error {}
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            //TODO CAMBIAR NOMBRES DE ERRORES 
+            //TODO CAMBIAR NOMBRES DE ERRORES
             Error::ClientDisconnect => write!(f, "server desconectado"),
             Error::MsgDelivery(err) => write!(f, "error enviando mensaje al server: {err}"),
             Error::PoisonState => write!(f, "error lockeando mutex"), //no hara falta....

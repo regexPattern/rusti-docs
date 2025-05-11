@@ -1,3 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["commands", "log", "microservicio", "redis_client", "redis_gui", "redis-server", "resp"]
+members = [
+	"commands",
+	# "docs-syncer",
+	"log",
+	"redis-server",
+	# "redis-gui",
+	# "redis-lib",
+	"resp"
+]

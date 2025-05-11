@@ -11,8 +11,8 @@ use std::{
 
 use commands::Command;
 // use error::Error;
-use log::LogMsg;
 use crate::client_pub_sub_broker::PubSubBroker;
+use log::LogMsg;
 use resp::SimpleError;
 
 use crate::client_pub_sub_broker::PubSubEnvelope;
@@ -27,7 +27,6 @@ pub struct Client {
 
 impl Client {
     pub fn new(logger_tx: Sender<LogMsg>) -> Self {
-
         //CREAR CON EL STREAM YA!!!!
         //TOTAL SERA SIEMPRE  EL MISMO NO???
 
@@ -49,16 +48,15 @@ impl Client {
         client
     }
 
-    fn execute_command(&self, mut server_conn: TcpStream, cmd: Command, ) -> Result<(), ()> {
+    fn execute_command(&self, mut server_conn: TcpStream, cmd: Command) -> Result<(), ()> {
         //no hace falta pasar por pata,etro el stream  xq lo podemos pasar al crear el clinete..
-        
-        //la server_conn puede estar guardada como atributo  por que es siempre la misma 
+
+        //la server_conn puede estar guardada como atributo  por que es siempre la misma
         // tambien puede tener guarddo  el channel  de rta  para comandos storgae
         //client_storage_tx
-        
+
         // tambien puede tener guarddo  el channel  de rta  para subscribe xq es siempre  igual..
-        
-        
+
         match cmd {
             Command::Storage(cmd) => {
                 //envio comando
@@ -66,9 +64,8 @@ impl Client {
                 server_conn.write_all(&cmd_bytes).unwrap();
 
                 //recibo respuesta
-                
-                //escribo rta por client_storage_tx  
 
+                //escribo rta por client_storage_tx
             }
             Command::PubSub(cmd) => {
                 self.broker_tx

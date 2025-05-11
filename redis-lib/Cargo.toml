@@ -1,9 +1,9 @@
 [package]
-name = "redis_client"
+name = "redis_lib"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 commands = { path = "../commands" }
-resp = { path = "../resp"}
 log = { path = "../log" }
+resp = { path = "../resp"}

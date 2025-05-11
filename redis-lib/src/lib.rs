@@ -6,7 +6,5 @@ pub mod client_pub_sub_broker;
 pub mod client_struct;
 
 pub mod error;
- 
-fn main() {
 
-}
+fn main() {}
