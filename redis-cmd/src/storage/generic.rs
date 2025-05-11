@@ -1,4 +1,4 @@
-use resp::BulkString;
+use redis_resp::BulkString;
 
 use crate::error::Error;
 

@@ -9,11 +9,11 @@ use std::{
     thread,
 };
 
-use commands::Command;
 use error::Error;
 use log::LogMsg;
 use pub_sub::PubSubBroker;
-use resp::SimpleError;
+use redis_cmd::Command;
+use redis_resp::SimpleError;
 
 use crate::storage::{self, Shard};
 

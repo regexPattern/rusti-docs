@@ -7,10 +7,10 @@ mod string;
 
 use std::{collections::HashMap, sync::mpsc::Sender};
 
-use commands::storage::*;
 use crc16::{State, XMODEM};
 use data_type::RedisDataType;
-use resp::BulkString;
+use redis_cmd::storage::*;
+use redis_resp::BulkString;
 
 const CLUSTER_HASH_SLOTS: u16 = 16384;
 

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use resp::{BulkString, Integer, RespDataType, Set, SimpleError};
+use redis_resp::{BulkString, Integer, RespDataType, Set, SimpleError};
 
 use super::{Shard, data_type::RedisDataType, error::Error};
 

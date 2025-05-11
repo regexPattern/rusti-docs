@@ -1,11 +1,9 @@
 [package]
-name = "redis_server"
+name = "redis_lib"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-crc16 = "0.4"
 log = { path = "../log" }
 redis_cmd = { path = "../redis-cmd" }
-redis_resp = { path = "../redis-resp" }
-uuid = { version = "1.16.0", features = ["v4"] }
+redis_resp = { path = "../redis-resp"}

@@ -1,9 +1,10 @@
-use commands::Command;
-use commands::pub_sub::PubSubCommand;
+//CREO Q ESTO BOOOOM!
+//CREO Q ESTO BOOOOM!
 
-use crate::client_command;
+use redis_cmd::Command;
+use redis_cmd::pub_sub::PubSubCommand;
 
-use resp::BulkString;
+use redis_resp::BulkString;
 
 pub enum CommandAction {
     Send(Vec<u8>),
@@ -17,9 +18,9 @@ pub enum CommandAction {
 
 //y aca la serelizacion de todos los comanodos..
 pub fn parse_and_serialize_command(input: &str) -> CommandAction {
-    match client_command::parse_command(input) {
-        Some(Command::PubSub(pubsub_cmd)) => {
-            use commands::pub_sub::PubSubCommand::*;
+    match crate::parse_command::parse_command(input).unwrap() {
+        Command::PubSub(pubsub_cmd) => {
+            use redis_cmd::pub_sub::PubSubCommand::*;
             match pubsub_cmd {
                 Subscribe(subscribe) => {
                     let chans = subscribe.channels.clone();
@@ -45,10 +46,9 @@ pub fn parse_and_serialize_command(input: &str) -> CommandAction {
             }
         }
         //storage commandsa get set publish etc...
-        Some(cmd) => {
+        cmd => {
             let resp_bytes: Vec<u8> = cmd.into();
             CommandAction::Send(resp_bytes)
         }
-        None => CommandAction::Unknown(input.trim().to_string()),
     }
 }

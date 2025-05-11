@@ -11,10 +11,10 @@ use std::{
     thread,
 };
 
-use commands::{Command, pub_sub::*};
 use error::Error;
 use log::LogMsg;
-use resp::{Array, BulkString, Integer, RespDataType, SimpleError};
+use redis_cmd::{Command, pub_sub::*};
+use redis_resp::{Array, BulkString, Integer, RespDataType, SimpleError};
 use uuid::Uuid;
 
 type State = HashMap<BulkString, HashMap<Uuid, Sender<Vec<u8>>>>;

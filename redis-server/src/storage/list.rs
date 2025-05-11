@@ -1,6 +1,6 @@
 use std::collections::LinkedList;
 
-use resp::{Array, BulkString, Integer, SimpleError};
+use redis_resp::{Array, BulkString, Integer, SimpleError};
 
 use super::{Shard, data_type::RedisDataType, error::Error};
 

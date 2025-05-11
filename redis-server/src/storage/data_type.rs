@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, LinkedList};
 
-use resp::BulkString;
+use redis_resp::BulkString;
 
 #[derive(Debug)]
 pub enum RedisDataType {

@@ -1,3 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["commands", "log", "redis-cli", "redis-server", "resp"]
+members = [
+	# "docs-editor",
+	# "docs-syncer",
+	"log",
+	"redis-cmd",
+	# "redis-lib",
+	"redis-resp",
+	"redis-server"
+]
