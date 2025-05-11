@@ -1,3 +1,3 @@
 [workspace]
 resolver = "2"
-members = ["commands", "log", "redis-cli", "redis-client", "redis-gui", "redis-server", "resp"]
+members = ["commands", "log", "microservicio", "redis_client", "redis_gui", "redis-server", "resp"]

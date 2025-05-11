@@ -1,3 +1,6 @@
+//esta puede quedar para mandar cosas por consola facilmente.,..
+//no boooom!!
+
 use commands::Command;
 use resp::{Array, BulkString, RespDataType};
 
