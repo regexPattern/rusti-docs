@@ -15,7 +15,7 @@ pub enum CommandAction {
 
 //y aca la serelizacion de todos los comanodos..
 pub fn parse_and_serialize_command(input: &str) -> CommandAction {
-    match crate::cli::parse_command(input).unwrap() {
+    match crate::parse_command::parse_command(input).unwrap() {
         Command::PubSub(pubsub_cmd) => {
             use commands::pub_sub::PubSubCommand::*;
             match pubsub_cmd {

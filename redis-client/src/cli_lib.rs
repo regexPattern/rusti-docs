@@ -1,9 +1,9 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc::Sender};
 use std::thread;
 
-use redis_client::command_sender::{self, CommandAction};
+use crate::command_sender::{self, CommandAction};
 
 // ESTA LIBREREIA TIENE ESTA FUICNION QUE SE LLAMA ASI (ES UNA COPIA DEL MAIN QUE ESTYA EN CLI.RS)
 
@@ -11,10 +11,9 @@ use redis_client::command_sender::{self, CommandAction};
 
 ///HANDLE_UI_COMMAND TAMBIEN SON BUENOS NOMBRES
 
-pub fn handle_command_input(input: String, stream: TcpStream) {
+pub fn handle_command_input(input: &str, stream: &Arc<Mutex<TcpStream>>, tx_client: Sender<String>) -> Result<bool, String> {
     
 
-    
     // //pedimos comando inical
     // print!("Ingrese comando: ");
 
@@ -33,20 +32,37 @@ pub fn handle_command_input(input: String, stream: TcpStream) {
     // let log_msg = log::info!("Conectado a {}", server_addr);
     // println!("{}", log_msg);
 
-    let stream: Arc<Mutex<TcpStream>> = Arc::new(Mutex::new(stream));
+    // let stream: Arc<Mutex<TcpStream>> = Arc::new(Mutex::new(stream));
 
     // Segun el comando enviamos  y manejamos
     match action {
         CommandAction::Send(bytes) => {
             //para set get publish
-            let mut stream = stream.lock().unwrap();
+            let mut stream = stream.lock().map_err(|_| "Lock error".to_string())?;
             stream.write_all(&bytes).unwrap();
             stream.flush().unwrap();
             println!("[DEBUG] Comando enviado esperando rta ...");
-            //aca llamariamos a un read line q va a ser una funcion
-            //que espera a que el server nos envie un mensaje. recien ahi salgo
+            
+            let server_stream_reader = stream.try_clone().map_err(|e| e.to_string())?;
+            let mut server_reader = BufReader::new(server_stream_reader);
+        
 
-            // como los threads se crean solo en el caso de subscribe abajo, nou pronlem :)))
+            let buffer = server_reader.fill_buf().map_err(|e| e.to_string())?;
+            if buffer.is_empty() {
+                tx_client.send("[DEBUG] Conexión cerrada por el servidor.".to_string()).ok();
+            } else {
+                
+                //TEMP: 
+                // Hay q mandar resp x ahora mando string xa simplificar..
+                
+                let server_reply = String::from_utf8_lossy(buffer).trim_end().to_string();
+                tx_client.send(server_reply).ok();
+
+                let len = buffer.len();
+                server_reader.consume(len);
+            }
+
+            Ok(true)
         }
         CommandAction::HandleSubscribe(bytes, _channels) => {
             let stream_reader = Arc::clone(&stream);
@@ -141,18 +157,28 @@ pub fn handle_command_input(input: String, stream: TcpStream) {
 
             reader_handle.join().unwrap();
             writer_handle.join().unwrap();
+
+            Ok(true)
+
         }
         CommandAction::HandleUnsubscribe(bytes, _channels) => {
             let mut stream = stream.lock().unwrap();
             stream.write_all(&bytes).unwrap();
             stream.flush().unwrap();
             println!("[DEBUG] UNSUBSCRIBE enviado.");
+
+            Ok(true)
+
         }
         CommandAction::Quit => {
             println!("Cerrando conexión.");
+            Ok(true)
+
         }
         CommandAction::Unknown(cmd) => {
             eprintln!("Comando no reconocido: {}", cmd);
+            Ok(true)
+
         }
     }
 }
