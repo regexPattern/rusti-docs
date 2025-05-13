@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Barrier};
 
 use redis_resp::{BulkString, Integer, Map, RespDataType, SimpleError};
 
@@ -85,5 +85,51 @@ impl StorageActor {
         };
 
         Ok(Map::to_resp_vec(hash))
+    }
+
+    // https://redis.io/docs/latest/commands/hkeys
+    pub(super) fn hkeys(&self, key: &BulkString) -> Result<Vec<u8>, u16> {
+        let slot = self.get_hash_slot(key)?;
+
+        let hash = match slot.get(key) {
+            Some(RedisDataType::Hash(hash)) => hash,
+            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            None => return Ok(RespDataType::Null.into()),
+        };
+
+        let keys: Vec<RespDataType> = hash.keys().cloned().map(RespDataType::from).collect();
+        Ok(redis_resp::Array::from(keys).into())
+    }
+
+    // https://redis.io/docs/latest/commands/hvals
+    pub(super) fn hvals(&self, key: &BulkString) -> Result<Vec<u8>, u16> {
+        let slot = self.get_hash_slot(key)?;
+
+        let hash = match slot.get(key) {
+            Some(RedisDataType::Hash(hash)) => hash,
+            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            None => return Ok(RespDataType::Null.into()),
+        };
+
+        let values: Vec<RespDataType> = hash.values().cloned().map(RespDataType::from).collect();
+        Ok(redis_resp::Array::from(values).into())
+    }
+
+    // https://redis.io/docs/latest/commands/hexists
+    pub(super) fn hexists(&self, key: &BulkString, field: &BulkString) -> Result<Vec<u8>, u16> {
+        let slot = self.get_hash_slot(key)?;
+
+        let hash = match slot.get(key) {
+            Some(RedisDataType::Hash(hash)) => hash,
+            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            None => return Ok(Integer::from(0).into()),
+        };
+        if hash.contains_key(field){
+            Ok(Integer::from(1).into())
+        }
+        else{
+            Ok(Integer::from(0).into())
+        }
+        
     }
 }

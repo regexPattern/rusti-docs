@@ -31,6 +31,32 @@ impl StorageActor {
         Ok(Integer::from(added).into())
     }
 
+    // https://redis.io/docs/latest/commands/rpush
+    pub(super) fn rpush(
+        &mut self,
+        key: BulkString,
+        elements: Vec<BulkString>,
+    ) -> Result<Vec<u8>, u16> {
+        let slot = self.get_hash_slot_mut(&key)?;
+
+        let list = slot
+            .entry(key)
+            .or_insert(RedisDataType::List(LinkedList::new()));
+
+        let list = match list {
+            RedisDataType::List(list) => list,
+            _ => return Ok(SimpleError::from(Error::WrongType).into()),
+        };
+
+        let added = elements.len() as i64;
+
+        for e in elements {
+            list.push_back(e);
+        }
+
+        Ok(Integer::from(list.len() as i64).into())
+    }
+
     // https://redis.io/docs/latest/commands/llen
     pub(super) fn llen(&self, key: &BulkString) -> Result<Vec<u8>, u16> {
         let slot = self.get_hash_slot(key)?;
@@ -68,6 +94,76 @@ impl StorageActor {
         let slice = &slice_wrap_iter(list.iter(), start, stop, list.len());
 
         Ok(Array::to_resp_vec(slice))
+    }
+
+    // https://redis.io/docs/latest/commands/lpop
+    pub(super) fn lpop(
+        &mut self,
+        key: &BulkString,
+        count: Option<BulkString>,
+    ) -> Result<Vec<u8>, u16> {
+        let slot = self.get_hash_slot_mut(key)?;
+
+        let list = match slot.get_mut(key) {
+            Some(RedisDataType::List(list)) => list,
+            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            None => return Ok(Array::to_resp_vec(&[])),
+        };
+
+        if list.is_empty() {
+            slot.remove(key);
+            return Ok(Array::to_resp_vec(&[]));
+        }
+        let count_str = count.unwrap_or(BulkString::from("1"));
+        let count_str: String = count_str.into();
+        let n: i64 = match count_str.parse::<i64>() {
+            Ok(value) if value >= 0 => value,
+            _ => return Ok(SimpleError::from(Error::ValueNotAnInteger).into()),
+        };
+
+        let mut popped = Vec::new();
+        for _ in 0..n {
+            if let Some(val) = list.pop_front() {
+                popped.push(val);
+            } else {
+                break;
+            }
+        }
+
+        if n > 1 {
+            Ok(Array::to_resp_vec(&popped.iter().collect::<Vec<_>>()))
+        } else {
+            Ok(popped.into_iter().next().map_or(BulkString::from("").into(), Into::into))
+        }
+    }
+
+    // https://redis.io/docs/latest/commands/lindex
+    pub(super) fn lindex(
+        &self,
+        key: BulkString,
+        index: BulkString,
+    ) -> Result<Vec<u8>, u16> {
+        let slot = self.get_hash_slot(&key)?;
+
+        let list = match slot.get(&key) {
+            Some(RedisDataType::List(list)) => list,
+            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            None => return Ok(BulkString::from("").into()), 
+        };
+        let index:String = index.into();
+        let index: i64 = match index.parse() {
+            Ok(value) => value,
+            _ => return Ok(SimpleError::from(Error::ValueNotAnInteger).into()),
+        };
+
+        let mapped_index = map_index(index, list.len());
+        if let Some(i) = mapped_index {
+            if let Some(element) = list.iter().nth(i) {
+                return Ok(element.clone().into());
+            }
+        }
+
+        Ok(BulkString::from("").into())
     }
 }
 

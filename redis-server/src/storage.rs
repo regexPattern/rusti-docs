@@ -124,9 +124,9 @@ impl StorageActor {
             StorageCommand::HGet(HGet { key, field }) => self.hget(&key, &field),
             StorageCommand::HDel(HDel { key, fields }) => self.hdel(&key, &fields),
             StorageCommand::HGetAll(HGetAll { key }) => self.hgetall(&key),
-            StorageCommand::HKeys(HKeys { key }) => todo!(),
-            StorageCommand::HVals(HVals { key }) => todo!(),
-            StorageCommand::HExists(HExists { key, field }) => todo!(),
+            StorageCommand::HKeys(HKeys { key }) => self.hkeys(&key),
+            StorageCommand::HVals(HVals { key }) => self.hvals(&key),
+            StorageCommand::HExists(HExists { key, field }) => self.hexists(&key, &field),
 
             StorageCommand::LPush(LPush { key, elements }) => self.lpush(key, elements),
             StorageCommand::LInsert(LInsert {
@@ -135,8 +135,8 @@ impl StorageActor {
                 pivot,
                 element,
             }) => todo!(),
-            StorageCommand::LPop(LPop { key, count }) => todo!(),
-            StorageCommand::LIndex(LIndex { key, index }) => todo!(),
+            StorageCommand::LPop(LPop { key, count }) => self.lpop(&key, count),
+            StorageCommand::LIndex(LIndex { key, index }) => self.lindex(key, index),
             StorageCommand::LLen(LLen { key }) => self.llen(&key),
             StorageCommand::LRange(LRange { key, start, stop }) => self.lrange(&key, &start, &stop),
 
@@ -148,10 +148,14 @@ impl StorageActor {
 
             StorageCommand::Set(Set { key, value }) => self.set(key, value),
             StorageCommand::Get(Get { key }) => self.get(&key),
-            StorageCommand::Append(Append { key, value }) => todo!(),
-            StorageCommand::Decr(Decr { key }) => todo!(),
-            StorageCommand::Incr(Incr { key }) => todo!(),
-        }
+
+            StorageCommand::Append(Append { key, value }) => self.append(key, value),
+            StorageCommand::Decr(Decr { key }) => self.decr(key),
+            StorageCommand::Incr(Incr { key }) => self.incr(key),
+        };
+
+        envel.reply_tx.send(reply).unwrap();
+
     }
 
     fn hash_key(key: &BulkString) -> u16 {
