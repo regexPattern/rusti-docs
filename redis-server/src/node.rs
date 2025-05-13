@@ -2,6 +2,7 @@ mod error;
 mod pub_sub;
 
 use std::io::Write;
+use std::path::PathBuf;
 use std::{
     io::{BufRead, BufReader},
     net::TcpStream,
@@ -15,7 +16,7 @@ use pub_sub::PubSubBroker;
 use redis_cmd::Command;
 use redis_resp::SimpleError;
 
-use crate::storage::{self, Shard};
+use crate::storage::{self, StorageActor};
 
 #[derive(Debug)]
 pub struct Node {
@@ -25,31 +26,30 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new(logger_tx: Sender<LogMsg>) -> Self {
+    pub fn start(append_file_path: PathBuf, logger_tx: Sender<LogMsg>) -> Result<Self, Error> {
         let (broker_tx, broker_rx) = mpsc::channel::<pub_sub::PubSubEnvelope>();
         let (storage_tx, storage_rx) = mpsc::channel::<storage::StorageEnvelope>();
 
-        let node = Self {
+        let mut pub_sub_broker = PubSubBroker::start(logger_tx.clone());
+        let mut storage_actor = StorageActor::start(append_file_path, logger_tx.clone()).unwrap();
+
+        thread::spawn(move || {
+            while let Ok(envel) = broker_rx.recv() {
+                pub_sub_broker.process(envel).unwrap();
+            }
+        });
+
+        thread::spawn(move || {
+            while let Ok(envel) = storage_rx.recv() {
+                storage_actor.process(envel);
+            }
+        });
+
+        Ok(Self {
             broker_tx,
             storage_tx,
-            logger_tx: logger_tx.clone(),
-        };
-
-        thread::spawn(move || {
-            let mut broker = PubSubBroker::new(logger_tx);
-            while let Ok(envel) = broker_rx.recv() {
-                broker.process(envel).unwrap();
-            }
-        });
-
-        thread::spawn(move || {
-            let mut shard = Shard::new();
-            while let Ok(envel) = storage_rx.recv() {
-                shard.process(envel);
-            }
-        });
-
-        node
+            logger_tx,
+        })
     }
 
     pub fn handle_client_conn(&self, client_conn: TcpStream) -> Result<(), Error> {

@@ -6,6 +6,7 @@ pub enum Error {
     PortParse(ParseIntError),
     IoThreadsParse(ParseIntError),
     LogFileOpen(io::Error),
+    PersistenceFileOpen(io::Error),
 }
 
 impl std::error::Error for Error {}
@@ -19,6 +20,9 @@ impl std::fmt::Display for Error {
                 write!(f, "número de threads del servidor inválido: {err}")
             }
             Error::LogFileOpen(err) => write!(f, "error abriendo archivo de logs: {err}"),
+            Error::PersistenceFileOpen(err) => {
+                write!(f, "error abriendo archivo de persistencia: {err}")
+            }
         }
     }
 }

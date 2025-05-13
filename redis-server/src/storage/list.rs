@@ -2,9 +2,9 @@ use std::collections::LinkedList;
 
 use redis_resp::{Array, BulkString, Integer, SimpleError};
 
-use super::{Shard, data_type::RedisDataType, error::Error};
+use super::{StorageActor, data_type::RedisDataType, error::Error};
 
-impl Shard {
+impl StorageActor {
     // https://redis.io/docs/latest/commands/lpush
     pub(super) fn lpush(
         &mut self,

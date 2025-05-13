@@ -1,10 +1,9 @@
 mod error;
 
 use std::collections::HashMap;
-use std::fs::File;
+use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use std::{io::Write, net::IpAddr};
 
 use error::Error;
 
@@ -12,7 +11,20 @@ pub struct Config {
     pub bind: IpAddr,
     pub port: u16,
     pub io_threads: usize,
-    pub logfile: Box<dyn Write + Send + 'static>,
+    pub logfile: Option<PathBuf>,
+    pub appendfilename: PathBuf,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            bind: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            port: 6379,
+            io_threads: 2,
+            logfile: None,
+            appendfilename: PathBuf::from("./appendonly.aof"),
+        }
+    }
 }
 
 impl Config {
@@ -30,8 +42,10 @@ impl Config {
             config.io_threads = io_threads.parse().map_err(Error::IoThreadsParse)?;
         }
         if let Some(logfile) = opts.get("logfile") {
-            let path = PathBuf::from(logfile);
-            config.logfile = Box::new(File::open(path).map_err(Error::LogFileOpen)?);
+            config.logfile = Some(logfile.into());
+        }
+        if let Some(appendfilename) = opts.get("appendfilename") {
+            config.appendfilename = appendfilename.into();
         }
 
         Ok(config)
@@ -61,17 +75,6 @@ impl Config {
         }
 
         opts
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            bind: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-            port: 6379,
-            io_threads: 2,
-            logfile: Box::new(std::io::stdout()),
-        }
     }
 }
 

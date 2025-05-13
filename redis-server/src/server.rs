@@ -1,6 +1,7 @@
 mod error;
 
 use std::{
+    fs::File,
     io::Write,
     net::{IpAddr, SocketAddr, TcpListener},
     sync::{
@@ -25,25 +26,34 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(mut config: Config) -> Self {
+    pub fn try_new(config: Config) -> Result<Self, Error> {
         let (logger_tx, logger_rx) = mpsc::channel::<LogMsg>();
+
+        let node = Node::start(config.appendfilename, logger_tx.clone()).unwrap();
+
+        let mut logfile: Box<dyn Write + Send> = if let Some(logfile) = config.logfile {
+            Box::new(File::open(logfile).unwrap())
+        } else {
+            Box::new(std::io::stdout())
+        };
 
         thread::spawn(move || {
             while let Ok(msg) = logger_rx.recv() {
-                if let Err(err) = write!(config.logfile, "{msg}") {
+                if let Err(err) = write!(logfile, "{msg}") {
                     eprintln!("{}", log::error!("error escribiendo logs: {err}"));
-                    break; // TODO: Matar el server si el logger falla.
+
+                    break;
                 }
             }
         });
 
-        Self {
+        Ok(Self {
             ip: config.bind,
             port: config.port,
             thread_pool: ThreadPool::new(config.io_threads),
-            node: Arc::new(Node::new(logger_tx.clone())),
+            node: Arc::new(node),
             logger_tx,
-        }
+        })
     }
 
     pub fn start(self) -> Result<(), Error> {

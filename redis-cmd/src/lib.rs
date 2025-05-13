@@ -12,7 +12,7 @@ use storage::*;
 
 use redis_resp::{Array, RespDataType};
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     Storage(StorageCommand),
     PubSub(PubSubCommand),
@@ -23,7 +23,15 @@ impl TryFrom<&[u8]> for Command {
     type Error = Error;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let dt_arr = Vec::from(Array::try_from(bytes)?).into_iter();
+        Command::try_from(Array::try_from(bytes)?)
+    }
+}
+
+impl TryFrom<Array> for Command {
+    type Error = Error;
+
+    fn try_from(arr: Array) -> Result<Self, Self::Error> {
+        let dt_arr = Vec::from(arr).into_iter();
         let mut args = Vec::with_capacity(dt_arr.len());
 
         for dt in dt_arr {
@@ -115,20 +123,20 @@ impl From<Command> for Vec<u8> {
     }
 }
 
-impl From<storage::StorageCommand> for Command {
-    fn from(cmd: storage::StorageCommand) -> Self {
+impl From<StorageCommand> for Command {
+    fn from(cmd: StorageCommand) -> Self {
         Self::Storage(cmd)
     }
 }
 
-impl From<pub_sub::PubSubCommand> for Command {
-    fn from(cmd: pub_sub::PubSubCommand) -> Self {
+impl From<PubSubCommand> for Command {
+    fn from(cmd: PubSubCommand) -> Self {
         Self::PubSub(cmd)
     }
 }
 
-impl From<cluster::ClusterCommand> for Command {
-    fn from(cmd: cluster::ClusterCommand) -> Self {
+impl From<ClusterCommand> for Command {
+    fn from(cmd: ClusterCommand) -> Self {
         Self::Cluster(cmd)
     }
 }

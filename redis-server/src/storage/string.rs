@@ -1,8 +1,8 @@
 use redis_resp::{BulkString, RespDataType, SimpleString};
 
-use super::{Shard, data_type::RedisDataType};
+use super::{StorageActor, data_type::RedisDataType};
 
-impl Shard {
+impl StorageActor {
     // https://redis.io/docs/latest/commands/get
     pub(super) fn get(&self, key: &BulkString) -> Result<Vec<u8>, u16> {
         let slot = self.get_hash_slot(key)?;

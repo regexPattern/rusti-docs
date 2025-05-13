@@ -116,6 +116,11 @@ impl Array {
         }
         result
     }
+
+    pub fn parse_incremental(bytes: &[u8]) -> Result<(Self, &[u8]), Error> {
+        let (elements, consumed) = Array::parse_elements_recursive(bytes, PREFIX)?;
+        Ok((Self(elements), &bytes[consumed..]))
+    }
 }
 
 impl From<Vec<RespDataType>> for Array {
@@ -423,5 +428,28 @@ mod tests {
         let owned_bytes = Vec::from(arr_owned);
 
         assert_eq!(ref_bytes, owned_bytes);
+    }
+
+    #[test]
+    fn parse_elements_recursive_retorna_num_bytes_avanzados() {
+        let bytes = concat!("*1\r\n:1\r\n", "+Hello, World!\r\n").as_bytes();
+
+        let (_, consumed) = Array::parse_elements_recursive(bytes, PREFIX).unwrap();
+
+        assert_eq!(consumed, "*1\r\n:1\r\n".len());
+    }
+
+    #[test]
+    fn parseo_incremental_de_array_retorna_primer_array_parseado_y_bytes_sobrantes() {
+        let bytes = concat!("*2\r\n:1\r\n:2\r\n", "*2\r\n+Hello\r\n+World\r\n").as_bytes();
+
+        let (arr_1, remaining) = Array::parse_incremental(bytes).unwrap();
+
+        assert_eq!(
+            arr_1.0,
+            vec![Integer::from(1).into(), Integer::from(2).into()]
+        );
+
+        assert_eq!(remaining, "*2\r\n+Hello\r\n+World\r\n".as_bytes());
     }
 }

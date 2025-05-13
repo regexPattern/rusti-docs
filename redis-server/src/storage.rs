@@ -5,18 +5,28 @@ mod list;
 mod set;
 mod string;
 
-use std::{collections::HashMap, sync::mpsc::Sender};
+use std::{
+    collections::HashMap,
+    fs::{File, OpenOptions},
+    io::{Read, Write},
+    path::PathBuf,
+    sync::mpsc::{self, Sender},
+    thread,
+};
 
 use crc16::{State, XMODEM};
 use data_type::RedisDataType;
-use redis_cmd::storage::*;
-use redis_resp::BulkString;
+use error::Error;
+use log::LogMsg;
+use redis_cmd::{Command, storage::*};
+use redis_resp::{Array, BulkString};
 
 const CLUSTER_HASH_SLOTS: u16 = 16384;
 
 #[derive(Debug)]
-pub struct Shard {
+pub struct StorageActor {
     hash_slots: HashMap<u16, HashMap<BulkString, RedisDataType>>,
+    persistence_tx: Sender<StorageCommand>,
 }
 
 #[derive(Debug)]
@@ -25,19 +35,86 @@ pub struct StorageEnvelope {
     pub reply_tx: Sender<Result<Vec<u8>, u16>>,
 }
 
-impl Shard {
-    pub fn new() -> Self {
+impl StorageActor {
+    pub fn start(append_file_path: PathBuf, logger_tx: Sender<LogMsg>) -> Result<Self, Error> {
+        let (persistence_tx, persistence_rx): (
+            Sender<StorageCommand>,
+            mpsc::Receiver<StorageCommand>,
+        ) = mpsc::channel();
+
         let mut hash_slots = HashMap::new();
 
         for i in 0..CLUSTER_HASH_SLOTS {
             hash_slots.insert(i, HashMap::new());
         }
 
-        Self { hash_slots }
+        let mut persistence_file = OpenOptions::new()
+            .read(true)
+            .append(true)
+            .create(true)
+            .open(&append_file_path)
+            .unwrap();
+
+        let mut storage_actor = Self {
+            hash_slots,
+            persistence_tx,
+        };
+
+        storage_actor.rebuild_from_persistence_file(&mut persistence_file);
+
+        thread::spawn(move || {
+            logger_tx
+                .send(log::info!(
+                    "se persistirán los comandos al archivo {:?}",
+                    append_file_path
+                ))
+                .unwrap();
+
+            for cmd in persistence_rx {
+                let bytes = Vec::from(Command::Storage(cmd));
+
+                persistence_file.write_all(&bytes).unwrap();
+                persistence_file.flush().unwrap();
+
+                logger_tx.send(log::info!("persistiendo comando")).unwrap();
+            }
+        });
+
+        Ok(storage_actor)
+    }
+
+    fn rebuild_from_persistence_file(&mut self, file: &mut File) {
+        let mut bytes = Vec::new();
+
+        file.read_to_end(&mut bytes).unwrap();
+
+        let mut remaining_bytes = bytes.as_slice();
+
+        while !remaining_bytes.is_empty() {
+            let result = Array::parse_incremental(remaining_bytes).unwrap();
+
+            let cmd = Command::try_from(result.0).unwrap();
+
+            if let Command::Storage(cmd) = cmd {
+                self.apply(cmd).unwrap();
+            }
+
+            remaining_bytes = result.1;
+        }
     }
 
     pub fn process(&mut self, envel: StorageEnvelope) {
-        let reply = match envel.cmd {
+        let reply = self.apply(envel.cmd.clone());
+
+        if reply.is_ok() {
+            self.persistence_tx.send(envel.cmd).unwrap();
+        }
+
+        envel.reply_tx.send(reply).unwrap();
+    }
+
+    fn apply(&mut self, cmd: StorageCommand) -> Result<Vec<u8>, u16> {
+        match cmd {
             StorageCommand::Del(Del { keys }) => todo!(),
 
             StorageCommand::HSet(HSet {
@@ -74,9 +151,7 @@ impl Shard {
             StorageCommand::Append(Append { key, value }) => todo!(),
             StorageCommand::Decr(Decr { key }) => todo!(),
             StorageCommand::Incr(Incr { key }) => todo!(),
-        };
-
-        envel.reply_tx.send(reply).unwrap();
+        }
     }
 
     fn hash_key(key: &BulkString) -> u16 {

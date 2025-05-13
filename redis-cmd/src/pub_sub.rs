@@ -2,7 +2,7 @@ use crate::Error;
 use redis_resp::BulkString;
 
 /// Comandos de Pub/Sub.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PubSubCommand {
     Subscribe(Subscribe),
     Unsubscribe(Unsubscribe),
@@ -26,7 +26,7 @@ impl From<PubSubCommand> for Vec<BulkString> {
 /// Subscribes the client to the specified channels.
 ///
 /// https://redis.io/docs/latest/commands/subscribe
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Subscribe {
     pub channels: Vec<BulkString>,
 }
@@ -60,7 +60,7 @@ impl From<Subscribe> for Vec<BulkString> {
 /// Unsubscribes the client from the given channels, or from all of them if none is given.
 ///
 /// https://redis.io/docs/latest/commands/unsubscribe
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Unsubscribe {
     pub channels: Vec<BulkString>,
 }
@@ -92,7 +92,7 @@ impl From<Unsubscribe> for Vec<BulkString> {
 /// In a Redis Cluster clients can publish to every node. The cluster makes sure that published messages are forwarded as needed, so clients can subscribe to any channel by connecting to any one of the nodes.
 ///
 /// https://redis.io/docs/latest/commands/publish
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Publish {
     pub channel: BulkString,
     pub message: BulkString,
@@ -122,7 +122,7 @@ impl From<Publish> for Vec<BulkString> {
 /// Lists the currently active channels.
 ///
 /// https://redis.io/docs/latest/commands/pubsub-channels
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PubSubChannels {
     pub pattern: Option<BulkString>,
 }
@@ -156,7 +156,7 @@ impl From<PubSubChannels> for Vec<BulkString> {
 /// Returns the number of subscribers (exclusive of clients subscribed to patterns) for the specified channels.
 ///
 /// https://redis.io/docs/latest/commands/pubsub-numsub
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PubSubNumSub {
     pub channels: Vec<BulkString>,
 }

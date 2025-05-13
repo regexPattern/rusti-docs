@@ -45,7 +45,7 @@ struct Client {
 }
 
 impl PubSubBroker {
-    pub fn new(logger_tx: Sender<LogMsg>) -> Self {
+    pub fn start(logger_tx: Sender<LogMsg>) -> Self {
         Self {
             state: Arc::new(Mutex::new(HashMap::new())),
             logger_tx,

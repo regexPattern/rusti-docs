@@ -12,7 +12,7 @@ pub use set::*;
 pub use string::*;
 
 /// Comandos de storage.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum StorageCommand {
     Del(Del),
 

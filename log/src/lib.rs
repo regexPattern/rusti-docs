@@ -53,6 +53,7 @@ macro_rules! info {
         $crate::LogMsg { msg: format!($($arg)*), level: $crate::LogLevel::Info }
     });
 }
+
 #[macro_export]
 macro_rules! warn {
     ($($arg:tt)*) => ({

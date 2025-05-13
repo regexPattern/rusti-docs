@@ -2,7 +2,7 @@ use crate::Error;
 use redis_resp::BulkString;
 
 /// Comandos de cluster.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ClusterCommand {
     FailOver(FailOver),
     Info(Info),
@@ -24,7 +24,7 @@ impl From<ClusterCommand> for Vec<BulkString> {
 /// This command, that can only be sent to a Redis Cluster replica node, forces the replica to start a manual failover of its master instance.
 ///
 /// https://redis.io/docs/latest/commands/cluster-failover
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FailOver {
     pub option: Option<BulkString>,
 }
@@ -45,7 +45,7 @@ impl From<FailOver> for ClusterCommand {
 /// Provides INFO style information about Redis Cluster vital parameters.
 ///
 /// https://redis.io/docs/latest/commands/cluster-info
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Info;
 
 impl Info {
@@ -63,7 +63,7 @@ impl From<Info> for ClusterCommand {
 /// Each node in a Redis Cluster has its view of the current cluster configuration, given by the set of known nodes, the state of the connection we have with such nodes, their flags, properties and assigned slots, and so forth.
 ///
 /// https://redis.io/docs/latest/commands/cluster-nodes
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Nodes;
 impl Nodes {
     pub fn from_args(_args: impl Iterator<Item = BulkString>) -> Result<Self, Error> {
@@ -80,7 +80,7 @@ impl From<Nodes> for ClusterCommand {
 /// Returns details about the shards of the cluster.
 ///
 /// https://redis.io/docs/latest/commands/cluster-shards
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Shards;
 
 impl Shards {

@@ -5,7 +5,7 @@ use crate::error::Error;
 /// Removes the specified keys. A key is ignored if it does not exist.
 ///
 /// https://redis.io/docs/latest/commands/del
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Del {
     pub keys: Vec<BulkString>,
 }

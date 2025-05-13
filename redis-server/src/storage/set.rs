@@ -2,9 +2,9 @@ use std::collections::HashSet;
 
 use redis_resp::{BulkString, Integer, RespDataType, Set, SimpleError};
 
-use super::{Shard, data_type::RedisDataType, error::Error};
+use super::{StorageActor, data_type::RedisDataType, error::Error};
 
-impl Shard {
+impl StorageActor {
     // https://redis.io/docs/latest/commands/sadd
     pub(super) fn sadd(
         &mut self,
