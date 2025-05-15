@@ -1,39 +1,43 @@
-use std::io;
+use std::{fmt, io};
 
 use crate::thread_pool;
 
+use super::node;
+
 #[derive(Debug)]
-pub enum Error {
-    Io(io::Error),
-    Log(log::Error),
+pub enum InternalError {
+    AddrBind(io::Error),
+    LogFileOpen(io::Error),
+    LogFileWrite(io::Error),
+    Node(node::InternalError),
     ThreadPool(thread_pool::Error),
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for InternalError {}
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for InternalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::Io(err) => write!(f, "{err}"),
-            Error::Log(err) => write!(f, "{err}"),
-            Error::ThreadPool(err) => write!(f, "{err}"),
+            InternalError::AddrBind(err) => {
+                write!(f, "error abriendo conexión del servidor: {err}")
+            }
+            InternalError::LogFileOpen(err) => write!(f, "error abriendo archivo de logs: {err}"),
+            InternalError::LogFileWrite(err) => {
+                write!(f, "error escribiendo al archivo de logs: {err}")
+            }
+            InternalError::Node(err) => write!(f, "{err}"),
+            InternalError::ThreadPool(err) => write!(f, "{err}"),
         }
     }
 }
 
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Self {
-        Self::Io(err)
+impl From<node::InternalError> for InternalError {
+    fn from(err: node::InternalError) -> Self {
+        Self::Node(err)
     }
 }
 
-impl From<log::Error> for Error {
-    fn from(err: log::Error) -> Self {
-        Self::Log(err)
-    }
-}
-
-impl From<thread_pool::Error> for Error {
+impl From<thread_pool::Error> for InternalError {
     fn from(err: thread_pool::Error) -> Self {
         Self::ThreadPool(err)
     }

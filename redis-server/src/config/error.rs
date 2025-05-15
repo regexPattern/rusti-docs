@@ -1,4 +1,4 @@
-use std::{io, net::AddrParseError, num::ParseIntError};
+use std::{fmt, io, net::AddrParseError, num::ParseIntError};
 
 #[derive(Debug)]
 pub enum Error {
@@ -11,8 +11,8 @@ pub enum Error {
 
 impl std::error::Error for Error {}
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::BindParse(err) => write!(f, "dirección IP del servidor inválida: {err}"),
             Error::PortParse(err) => write!(f, "puerto del servidor inválido: {err}"),

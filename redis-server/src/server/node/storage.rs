@@ -1,5 +1,6 @@
 mod data_type;
 mod error;
+mod generic;
 mod hash;
 mod list;
 mod set;
@@ -16,7 +17,7 @@ use std::{
 
 use crc16::{State, XMODEM};
 use data_type::RedisDataType;
-use error::Error;
+pub use error::InternalError;
 use log::LogMsg;
 use redis_cmd::{Command, storage::*};
 use redis_resp::{Array, BulkString};
@@ -36,7 +37,10 @@ pub struct StorageEnvelope {
 }
 
 impl StorageActor {
-    pub fn start(append_file_path: PathBuf, logger_tx: Sender<LogMsg>) -> Result<Self, Error> {
+    pub fn start(
+        append_file_path: PathBuf,
+        logger_tx: Sender<LogMsg>,
+    ) -> Result<Self, InternalError> {
         let (persistence_tx, persistence_rx): (
             Sender<StorageCommand>,
             mpsc::Receiver<StorageCommand>,
@@ -53,19 +57,19 @@ impl StorageActor {
             .append(true)
             .create(true)
             .open(&append_file_path)
-            .unwrap();
+            .map_err(InternalError::PersistenceFileOpen)?;
 
         let mut storage_actor = Self {
             hash_slots,
             persistence_tx,
         };
 
-        storage_actor.rebuild_from_persistence_file(&mut persistence_file);
+        storage_actor.rebuild_from_persistence_file(&mut persistence_file)?;
 
         thread::spawn(move || {
             logger_tx
                 .send(log::info!(
-                    "se persistirán los comandos al archivo {:?}",
+                    "persistiendo base de datos al archivo {:?}",
                     append_file_path
                 ))
                 .unwrap();
@@ -73,34 +77,49 @@ impl StorageActor {
             for cmd in persistence_rx {
                 let bytes = Vec::from(Command::Storage(cmd));
 
-                persistence_file.write_all(&bytes).unwrap();
-                persistence_file.flush().unwrap();
-
-                logger_tx.send(log::info!("persistiendo comando")).unwrap();
+                if let Err(err) = Self::write_to_persistence_file(&mut persistence_file, &bytes) {
+                    logger_tx.send(log::error!("{err}")).unwrap();
+                }
             }
         });
 
         Ok(storage_actor)
     }
 
-    fn rebuild_from_persistence_file(&mut self, file: &mut File) {
+    fn rebuild_from_persistence_file(&mut self, file: &mut File) -> Result<(), InternalError> {
         let mut bytes = Vec::new();
 
-        file.read_to_end(&mut bytes).unwrap();
+        file.read_to_end(&mut bytes)
+            .map_err(InternalError::PersistenceFileRead)?;
 
         let mut remaining_bytes = bytes.as_slice();
 
         while !remaining_bytes.is_empty() {
-            let result = Array::parse_incremental(remaining_bytes).unwrap();
+            let result = Array::parse_incremental(remaining_bytes)
+                .map_err(InternalError::PersistenceFileFormat)?;
 
-            let cmd = Command::try_from(result.0).unwrap();
+            let cmd = Command::try_from(result.0).map_err(InternalError::PersistenceFileCommand)?;
 
             if let Command::Storage(cmd) = cmd {
+                // TODO: cuando tengamos el cluster vamos a tener que cambiar esto, porque
+                // actualmente el apply solo retorna error cuando el hash slot al que se intenta
+                // aplicar la modificación de la DB no pertenece al shard. Sin embargo, ya en un
+                // cluster, realmente no deberíamos hacer que cada nodo del cluster se encargue de
+                // esto, sino que más bien sea sincrónico entre los diferentes nodos.
+
                 self.apply(cmd).unwrap();
             }
 
             remaining_bytes = result.1;
         }
+
+        Ok(())
+    }
+
+    fn write_to_persistence_file(file: &mut File, bytes: &[u8]) -> Result<(), InternalError> {
+        file.write_all(bytes)
+            .map_err(InternalError::PersistenceFileWrite)?;
+        file.sync_all().map_err(InternalError::PersistenceFileWrite)
     }
 
     pub fn process(&mut self, envel: StorageEnvelope) {
@@ -115,7 +134,7 @@ impl StorageActor {
 
     fn apply(&mut self, cmd: StorageCommand) -> Result<Vec<u8>, u16> {
         match cmd {
-            StorageCommand::Del(Del { keys }) => todo!(),
+            StorageCommand::Del(Del { key, keys }) => self.del(key, keys),
 
             StorageCommand::HSet(HSet {
                 key,
@@ -134,7 +153,7 @@ impl StorageActor {
                 pos,
                 pivot,
                 element,
-            }) => todo!(),
+            }) => self.linsert(key, pos, pivot, element),
             StorageCommand::LPop(LPop { key, count }) => self.lpop(&key, count),
             StorageCommand::LIndex(LIndex { key, index }) => self.lindex(key, index),
             StorageCommand::LLen(LLen { key }) => self.llen(&key),
@@ -152,10 +171,7 @@ impl StorageActor {
             StorageCommand::Append(Append { key, value }) => self.append(key, value),
             StorageCommand::Decr(Decr { key }) => self.decr(key),
             StorageCommand::Incr(Incr { key }) => self.incr(key),
-        };
-
-        envel.reply_tx.send(reply).unwrap();
-
+        }
     }
 
     fn hash_key(key: &BulkString) -> u16 {

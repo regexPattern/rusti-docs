@@ -1,3 +1,4 @@
+use std::fmt;
 use std::sync::OnceLock;
 use std::sync::mpsc::SendError;
 
@@ -21,8 +22,8 @@ pub enum LogLevel {
 
 pub type Error = SendError<LogMsg>;
 
-impl std::fmt::Display for LogMsg {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for LogMsg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let debug_on = *DEBUG_ENABLED.get_or_init(|| {
             std::env::var("LOG_LEVEL")
                 .map(|v| v.eq_ignore_ascii_case("DEBUG"))

@@ -11,7 +11,8 @@ use std::{
     thread,
 };
 
-use error::Error;
+pub use error::InternalError;
+use error::OperationError;
 use log::LogMsg;
 use redis_cmd::{Command, pub_sub::*};
 use redis_resp::{Array, BulkString, Integer, RespDataType, SimpleError};
@@ -32,12 +33,6 @@ pub struct PubSubEnvelope {
 }
 
 #[derive(Debug)]
-enum PubSubActionKind {
-    Subscribe,
-    Unsubscribe,
-}
-
-#[derive(Debug)]
 struct Client {
     id: Uuid,
     conn: TcpStream,
@@ -52,7 +47,7 @@ impl PubSubBroker {
         }
     }
 
-    pub fn process(&mut self, mut envel: PubSubEnvelope) -> Result<(), Error> {
+    pub fn process(&mut self, mut envel: PubSubEnvelope) -> Result<(), InternalError> {
         match envel.cmd {
             PubSubCommand::Subscribe(Subscribe { channels }) => {
                 let client = self.keep_alive(envel.client_conn, self.logger_tx.clone())?;
@@ -65,8 +60,10 @@ impl PubSubBroker {
             PubSubCommand::Unsubscribe(Unsubscribe { channels }) => {
                 Self::fake_unsubscribe(envel.client_conn, channels)?;
             }
-            PubSubCommand::PubSubChannels(PubSubChannels { pattern }) => todo!(),
-            PubSubCommand::PubSubNumSub(PubSubNumSub { channels }) => todo!(),
+            PubSubCommand::PubSubChannels(PubSubChannels { pattern: _pattern }) => todo!(),
+            PubSubCommand::PubSubNumSub(PubSubNumSub {
+                channels: _channels,
+            }) => todo!(),
         };
 
         Ok(())
@@ -76,7 +73,7 @@ impl PubSubBroker {
         &mut self,
         client_conn: TcpStream,
         logger_tx: Sender<LogMsg>,
-    ) -> Result<Client, Error> {
+    ) -> Result<Client, InternalError> {
         let (client_tx, client_rx) = mpsc::channel();
 
         let client = Client {
@@ -125,13 +122,19 @@ impl PubSubBroker {
                     ))
                     .unwrap();
                 Self::prune_client(client.id, &state, &logger_tx_clone).unwrap();
+            } else {
+                logger_tx_clone
+                    .send(log::info!("cliente {} se ha desconectado", client.id))
+                    .unwrap();
             }
         });
 
-        logger_tx.send(log::info!(
-            "manteniendo viva conexión de cliente {}",
-            client.id
-        ))?;
+        logger_tx
+            .send(log::info!(
+                "manteniendo viva conexión de cliente {}",
+                client.id
+            ))
+            .unwrap();
 
         Ok(client)
     }
@@ -140,7 +143,7 @@ impl PubSubBroker {
         client: &Client,
         state: &Arc<Mutex<State>>,
         logger_tx: &Sender<LogMsg>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), InternalError> {
         let commands_stream = client.conn.try_clone()?;
         let mut reader = BufReader::new(commands_stream);
 
@@ -155,27 +158,20 @@ impl PubSubBroker {
                     match cmd {
                         Ok(cmd) => Self::handle_incoming_command(client, state, cmd, logger_tx)?,
                         Err(err) => {
-                            logger_tx.send(log::info!(
-                                "comando enviado por el cliente {} es invalido",
-                                client.id,
-                            ))?;
+                            logger_tx
+                                .send(log::info!(
+                                    "comando enviado por cliente {} es invalido",
+                                    client.id,
+                                ))
+                                .unwrap();
 
                             client.tx.send(SimpleError::from(err).into())?;
                             continue;
                         }
                     }
                 }
-                Ok(_) => {
-                    return Err(Error::ClientDisconnect);
-                }
-                Err(err) => {
-                    logger_tx.send(log::error!(
-                        "error al leer bytes mandados por el cliente {}: {err}",
-                        client.id
-                    ))?;
-
-                    return Err(err.into());
-                }
+                Ok(_) => return Ok(()),
+                Err(err) => return Err(err.into()),
             };
         }
     }
@@ -185,7 +181,7 @@ impl PubSubBroker {
         state: &Arc<Mutex<State>>,
         cmd: Command,
         logger_tx: &Sender<LogMsg>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), InternalError> {
         match cmd {
             Command::PubSub(PubSubCommand::Subscribe(Subscribe { channels })) => {
                 Self::subscribe(client, state, channels, logger_tx)
@@ -194,7 +190,11 @@ impl PubSubBroker {
                 Self::unsubscribe(client, state, channels, logger_tx)
             }
             _ => {
-                client.tx.send(SimpleError::from("ERR solo se permiten los comandos `SUBSCRIBE` / `UNSUBSCRIBE` / `QUIT` en subscriber state").into()).unwrap();
+                client
+                    .tx
+                    .send(SimpleError::from(OperationError::NotAPubSubCommand).into())
+                    .unwrap();
+
                 Ok(())
             }
         }
@@ -206,17 +206,19 @@ impl PubSubBroker {
         state: &Arc<Mutex<State>>,
         channels: Vec<BulkString>,
         logger_tx: &Sender<LogMsg>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), InternalError> {
         let mut state = state.lock()?;
 
         for chan_name in channels {
             let chan_subs = state.entry(chan_name.clone()).or_default();
             chan_subs.insert(client.id, client.tx.clone());
 
-            logger_tx.send(log::info!(
-                "cliente {} suscrito al channel {chan_name}",
-                client.id
-            ))?;
+            logger_tx
+                .send(log::info!(
+                    "cliente {} suscrito al channel {chan_name}",
+                    client.id
+                ))
+                .unwrap();
 
             let n_client_subs = Self::count_client_subs(client.id, &state);
 
@@ -233,7 +235,7 @@ impl PubSubBroker {
     }
 
     // https://redis.io/docs/latest/commands/publish
-    fn publish(&self, chan_name: &BulkString, msg: BulkString) -> Result<Vec<u8>, Error> {
+    fn publish(&self, chan_name: &BulkString, msg: BulkString) -> Result<Vec<u8>, InternalError> {
         let state = self.state.lock()?;
         let mut n_chan_subs = 0;
 
@@ -251,10 +253,12 @@ impl PubSubBroker {
             }
         }
 
-        self.logger_tx.send(log::info!(
-            "publicados {} bytes al channel {chan_name}",
-            msg.len()
-        ))?;
+        self.logger_tx
+            .send(log::info!(
+                "publicados {} bytes al channel {chan_name}",
+                msg.len()
+            ))
+            .unwrap();
 
         Ok(Integer::from(n_chan_subs as i64).into())
     }
@@ -265,7 +269,7 @@ impl PubSubBroker {
         state: &Arc<Mutex<State>>,
         mut channels: Vec<BulkString>,
         logger_tx: &Sender<LogMsg>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), InternalError> {
         let mut state = state.lock()?;
 
         if channels.is_empty() {
@@ -291,10 +295,12 @@ impl PubSubBroker {
         for chan_name in channels {
             if let Some(chan_subs) = state.get_mut(&chan_name) {
                 if chan_subs.remove(&client.id).is_some() {
-                    logger_tx.send(log::info!(
-                        "desuscrito cliente {} del channel {chan_name}",
-                        client.id
-                    ))?;
+                    logger_tx
+                        .send(log::info!(
+                            "desuscrito cliente {} del channel {chan_name}",
+                            client.id
+                        ))
+                        .unwrap();
                 }
             }
 
@@ -315,7 +321,7 @@ impl PubSubBroker {
     fn fake_unsubscribe(
         mut client_conn: TcpStream,
         channels: Vec<BulkString>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), InternalError> {
         if channels.is_empty() {
             let reply = Array::from(vec![
                 BulkString::from("unsubscribe").into(),
@@ -350,12 +356,18 @@ impl PubSubBroker {
         client_id: Uuid,
         state: &Arc<Mutex<State>>,
         logger_tx: &Sender<LogMsg>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), InternalError> {
         let mut state = state.lock()?;
 
-        for (chan_name, chan_subs) in state.iter_mut() {
+        for (_, chan_subs) in state.iter_mut() {
             chan_subs.remove(&client_id);
         }
+
+        logger_tx
+            .send(log::info!(
+                "eliminadas todas las subscripciones de cliente {client_id}"
+            ))
+            .unwrap();
 
         Ok(())
     }

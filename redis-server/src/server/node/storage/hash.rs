@@ -1,8 +1,8 @@
-use std::{collections::HashMap, sync::Barrier};
+use std::collections::HashMap;
 
 use redis_resp::{BulkString, Integer, Map, RespDataType, SimpleError};
 
-use super::{StorageActor, data_type::RedisDataType, error::Error};
+use super::{StorageActor, data_type::RedisDataType, error::OperationError};
 
 impl StorageActor {
     // https://redis.io/docs/latest/commands/hset
@@ -14,7 +14,7 @@ impl StorageActor {
         let slot = self.get_hash_slot_mut(&key)?;
 
         if field_value_pairs.is_empty() || field_value_pairs.len() % 2 != 0 {
-            return Ok(SimpleError::from(Error::WrongNumberOfArgs).into());
+            return Ok(SimpleError::from(OperationError::WrongNumberOfArgs).into());
         }
 
         let hash = slot
@@ -23,7 +23,7 @@ impl StorageActor {
 
         let hash = match hash {
             RedisDataType::Hash(hash) => hash,
-            _ => return Ok(SimpleError::from(Error::WrongType).into()),
+            _ => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
         };
 
         let mut added = 0;
@@ -43,7 +43,7 @@ impl StorageActor {
 
         let hash = match slot.get(key) {
             Some(RedisDataType::Hash(hash)) => hash,
-            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
             None => return Ok(RespDataType::Null.into()),
         };
 
@@ -59,7 +59,7 @@ impl StorageActor {
 
         let hash = match slot.get_mut(key) {
             Some(RedisDataType::Hash(hash)) => hash,
-            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
             None => return Ok(RespDataType::Null.into()),
         };
 
@@ -80,7 +80,7 @@ impl StorageActor {
 
         let hash = match slot.get(key) {
             Some(RedisDataType::Hash(hash)) => hash,
-            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
             None => return Ok(RespDataType::Null.into()),
         };
 
@@ -93,7 +93,7 @@ impl StorageActor {
 
         let hash = match slot.get(key) {
             Some(RedisDataType::Hash(hash)) => hash,
-            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
             None => return Ok(RespDataType::Null.into()),
         };
 
@@ -107,7 +107,7 @@ impl StorageActor {
 
         let hash = match slot.get(key) {
             Some(RedisDataType::Hash(hash)) => hash,
-            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
             None => return Ok(RespDataType::Null.into()),
         };
 
@@ -121,15 +121,13 @@ impl StorageActor {
 
         let hash = match slot.get(key) {
             Some(RedisDataType::Hash(hash)) => hash,
-            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
             None => return Ok(Integer::from(0).into()),
         };
-        if hash.contains_key(field){
+        if hash.contains_key(field) {
             Ok(Integer::from(1).into())
-        }
-        else{
+        } else {
             Ok(Integer::from(0).into())
         }
-        
     }
 }

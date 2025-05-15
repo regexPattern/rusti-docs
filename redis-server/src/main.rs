@@ -24,6 +24,6 @@ fn main() {
         None => Config::default(),
     };
 
-    let server = Server::try_new(config).unwrap();
+    let server = Server::new(config).unwrap();
     server.start().unwrap();
 }

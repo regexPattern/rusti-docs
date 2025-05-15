@@ -29,6 +29,14 @@ impl HSet {
     }
 }
 
+impl From<HSet> for Vec<BulkString> {
+    fn from(cmd: HSet) -> Self {
+        let mut args = vec![BulkString::from("HSET"), cmd.key];
+        args.extend(cmd.field_value_pairs);
+        args
+    }
+}
+
 /// Returns the value associated with field in the hash stored at key.
 ///
 /// https://redis.io/docs/latest/commands/hget
@@ -44,6 +52,12 @@ impl HGet {
             key: args.next().ok_or(Error::MissingArgument)?,
             field: args.next().ok_or(Error::MissingArgument)?,
         })
+    }
+}
+
+impl From<HGet> for Vec<BulkString> {
+    fn from(cmd: HGet) -> Self {
+        vec![BulkString::from("HGET"), cmd.key, cmd.field]
     }
 }
 
@@ -69,6 +83,14 @@ impl HDel {
     }
 }
 
+impl From<HDel> for Vec<BulkString> {
+    fn from(cmd: HDel) -> Self {
+        let mut args = vec![BulkString::from("HDEL"), cmd.key];
+        args.extend(cmd.fields);
+        args
+    }
+}
+
 /// Returns all fields and values of the hash stored at key. In the returned value, every field name is followed by its value, so the length of the reply is twice the size of the hash.
 ///
 /// https://redis.io/docs/latest/commands/hgetall
@@ -82,6 +104,12 @@ impl HGetAll {
         Ok(Self {
             key: args.next().ok_or(Error::MissingArgument)?,
         })
+    }
+}
+
+impl From<HGetAll> for Vec<BulkString> {
+    fn from(cmd: HGetAll) -> Self {
+        vec![BulkString::from("HGETALL"), cmd.key]
     }
 }
 
@@ -101,6 +129,12 @@ impl HKeys {
     }
 }
 
+impl From<HKeys> for Vec<BulkString> {
+    fn from(cmd: HKeys) -> Self {
+        vec![BulkString::from("HKEYS"), cmd.key]
+    }
+}
+
 /// Returns all values in the hash stored at key.
 ///
 /// https://redis.io/docs/latest/commands/hvals
@@ -114,6 +148,12 @@ impl HVals {
         Ok(Self {
             key: args.next().ok_or(Error::MissingArgument)?,
         })
+    }
+}
+
+impl From<HVals> for Vec<BulkString> {
+    fn from(cmd: HVals) -> Self {
+        vec![BulkString::from("HVALS"), cmd.key]
     }
 }
 
@@ -132,5 +172,11 @@ impl HExists {
             key: args.next().ok_or(Error::MissingArgument)?,
             field: args.next().ok_or(Error::MissingArgument)?,
         })
+    }
+}
+
+impl From<HExists> for Vec<BulkString> {
+    fn from(cmd: HExists) -> Self {
+        vec![BulkString::from("HEXISTS"), cmd.key, cmd.field]
     }
 }

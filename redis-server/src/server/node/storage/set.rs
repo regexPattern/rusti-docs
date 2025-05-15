@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use redis_resp::{BulkString, Integer, RespDataType, Set, SimpleError};
 
-use super::{StorageActor, data_type::RedisDataType, error::Error};
+use super::{StorageActor, data_type::RedisDataType, error::OperationError};
 
 impl StorageActor {
     // https://redis.io/docs/latest/commands/sadd
@@ -14,7 +14,7 @@ impl StorageActor {
         let slot = self.get_hash_slot_mut(&key)?;
 
         if members.is_empty() {
-            return Ok(SimpleError::from(Error::WrongNumberOfArgs).into());
+            return Ok(SimpleError::from(OperationError::WrongNumberOfArgs).into());
         }
 
         let set = slot
@@ -23,7 +23,7 @@ impl StorageActor {
 
         let set = match set {
             RedisDataType::Set(set) => set,
-            _ => return Ok(SimpleError::from(Error::WrongType).into()),
+            _ => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
         };
 
         let added = members.len() as i64;
@@ -39,7 +39,7 @@ impl StorageActor {
 
         let set = match slot.get(key) {
             Some(RedisDataType::Set(set)) => set,
-            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
             None => return Ok(RespDataType::Null.into()),
         };
 
@@ -55,12 +55,12 @@ impl StorageActor {
         let slot = self.get_hash_slot_mut(&key)?;
 
         if members.is_empty() {
-            return Ok(SimpleError::from(Error::WrongNumberOfArgs).into());
+            return Ok(SimpleError::from(OperationError::WrongNumberOfArgs).into());
         }
 
         let set = match slot.get_mut(&key) {
             Some(RedisDataType::Set(set)) => set,
-            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
             None => return Ok(Integer::from(0).into()),
         };
 
@@ -81,7 +81,7 @@ impl StorageActor {
 
         let set = match slot.get(key) {
             Some(RedisDataType::Set(set)) => set,
-            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
             None => return Ok(Integer::from(0).into()),
         };
 
@@ -96,7 +96,7 @@ impl StorageActor {
 
         let set = match slot.get(key) {
             Some(RedisDataType::Set(set)) => set,
-            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
             None => return Ok(Integer::from(0).into()),
         };
 

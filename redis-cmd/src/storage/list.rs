@@ -21,6 +21,14 @@ impl LPush {
     }
 }
 
+impl From<LPush> for Vec<BulkString> {
+    fn from(cmd: LPush) -> Self {
+        let mut args = vec![BulkString::from("LPUSH"), cmd.key];
+        args.extend(cmd.elements);
+        args
+    }
+}
+
 /// Inserts element in the list stored at key either before or after the reference value pivot.
 ///
 /// https://redis.io/docs/latest/commands/linsert
@@ -40,6 +48,18 @@ impl LInsert {
             pivot: args.next().ok_or(Error::MissingArgument)?,
             element: args.next().ok_or(Error::MissingArgument)?,
         })
+    }
+}
+
+impl From<LInsert> for Vec<BulkString> {
+    fn from(cmd: LInsert) -> Self {
+        vec![
+            BulkString::from("LINSERT"),
+            cmd.key,
+            cmd.pos,
+            cmd.pivot,
+            cmd.element,
+        ]
     }
 }
 
@@ -90,6 +110,12 @@ impl LIndex {
     }
 }
 
+impl From<LIndex> for Vec<BulkString> {
+    fn from(cmd: LIndex) -> Self {
+        vec![BulkString::from("LINDEX"), cmd.key, cmd.index]
+    }
+}
+
 /// Returns the length of the list stored at key. If key does not exist, it is interpreted as an empty list and 0 is returned. An error is returned when the value stored at key is not a list.
 ///
 /// https://redis.io/docs/latest/commands/llen
@@ -103,6 +129,12 @@ impl LLen {
         Ok(Self {
             key: args.next().ok_or(Error::MissingArgument)?,
         })
+    }
+}
+
+impl From<LLen> for Vec<BulkString> {
+    fn from(cmd: LLen) -> Self {
+        vec![BulkString::from("LLEN"), cmd.key]
     }
 }
 
@@ -123,5 +155,11 @@ impl LRange {
             start: args.next().ok_or(Error::MissingArgument)?,
             stop: args.next().ok_or(Error::MissingArgument)?,
         })
+    }
+}
+
+impl From<LRange> for Vec<BulkString> {
+    fn from(cmd: LRange) -> Self {
+        vec![BulkString::from("LRANGE"), cmd.key, cmd.start, cmd.stop]
     }
 }

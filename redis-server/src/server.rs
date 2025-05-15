@@ -1,7 +1,8 @@
 mod error;
+mod node;
 
 use std::{
-    fs::File,
+    fs::OpenOptions,
     io::Write,
     net::{IpAddr, SocketAddr, TcpListener},
     sync::{
@@ -11,10 +12,11 @@ use std::{
     thread,
 };
 
-use error::Error;
+use error::InternalError;
 use log::LogMsg;
+use node::Node;
 
-use crate::{config::Config, node::Node, thread_pool::ThreadPool};
+use crate::{config::Config, thread_pool::ThreadPool};
 
 #[derive(Debug)]
 pub struct Server {
@@ -26,22 +28,27 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn try_new(config: Config) -> Result<Self, Error> {
-        let (logger_tx, logger_rx) = mpsc::channel::<LogMsg>();
+    pub fn new(config: Config) -> Result<Self, InternalError> {
+        let (logger_tx, logger_rx) = mpsc::channel();
 
-        let node = Node::start(config.appendfilename, logger_tx.clone()).unwrap();
+        let node = Node::start(config.appendfilename, logger_tx.clone())?;
 
-        let mut logfile: Box<dyn Write + Send> = if let Some(logfile) = config.logfile {
-            Box::new(File::open(logfile).unwrap())
+        let mut log_file: Box<dyn Write + Send> = if let Some(path) = config.logfile {
+            Box::new(
+                OpenOptions::new()
+                    .append(true)
+                    .create(true)
+                    .open(path)
+                    .map_err(InternalError::LogFileOpen)?,
+            )
         } else {
             Box::new(std::io::stdout())
         };
 
         thread::spawn(move || {
             while let Ok(msg) = logger_rx.recv() {
-                if let Err(err) = write!(logfile, "{msg}") {
-                    eprintln!("{}", log::error!("error escribiendo logs: {err}"));
-
+                if let Err(err) = write!(log_file, "{msg}") {
+                    eprintln!("{}", log::error!("{}", InternalError::LogFileWrite(err)));
                     break;
                 }
             }
@@ -56,22 +63,29 @@ impl Server {
         })
     }
 
-    pub fn start(self) -> Result<(), Error> {
+    pub fn start(self) -> Result<(), InternalError> {
         let addr = SocketAddr::new(self.ip, self.port);
-        let listener = TcpListener::bind(addr)?;
+        let listener = TcpListener::bind(addr).map_err(InternalError::AddrBind)?;
 
         self.logger_tx
-            .send(log::info!("servidor escuchando en {:?}", addr))?;
+            .send(log::info!("servidor escuchando en {:?}", addr))
+            .unwrap();
 
         for conn in listener.incoming() {
-            let conn = conn?;
+            let conn = match conn {
+                Ok(conn) => conn,
+                Err(err) => {
+                    self.logger_tx.send(log::error!("{err}")).unwrap();
+                    continue;
+                }
+            };
 
             let logger_tx = self.logger_tx.clone();
             let node = Arc::clone(&self.node);
 
             self.thread_pool.execute(move || {
                 if let Err(err) = node.handle_client_conn(conn) {
-                    let _ = logger_tx.send(log::error!("{err}"));
+                    logger_tx.send(log::error!("{err}")).unwrap();
                 }
             })?;
         }

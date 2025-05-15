@@ -2,7 +2,7 @@ use std::collections::LinkedList;
 
 use redis_resp::{Array, BulkString, Integer, SimpleError};
 
-use super::{StorageActor, data_type::RedisDataType, error::Error};
+use super::{StorageActor, data_type::RedisDataType, error::OperationError};
 
 impl StorageActor {
     // https://redis.io/docs/latest/commands/lpush
@@ -19,7 +19,7 @@ impl StorageActor {
 
         let list = match list {
             RedisDataType::List(list) => list,
-            _ => return Ok(SimpleError::from(Error::WrongType).into()),
+            _ => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
         };
 
         let added = elements.len() as i64;
@@ -31,39 +31,13 @@ impl StorageActor {
         Ok(Integer::from(added).into())
     }
 
-    // https://redis.io/docs/latest/commands/rpush
-    pub(super) fn rpush(
-        &mut self,
-        key: BulkString,
-        elements: Vec<BulkString>,
-    ) -> Result<Vec<u8>, u16> {
-        let slot = self.get_hash_slot_mut(&key)?;
-
-        let list = slot
-            .entry(key)
-            .or_insert(RedisDataType::List(LinkedList::new()));
-
-        let list = match list {
-            RedisDataType::List(list) => list,
-            _ => return Ok(SimpleError::from(Error::WrongType).into()),
-        };
-
-        let added = elements.len() as i64;
-
-        for e in elements {
-            list.push_back(e);
-        }
-
-        Ok(Integer::from(list.len() as i64).into())
-    }
-
     // https://redis.io/docs/latest/commands/llen
     pub(super) fn llen(&self, key: &BulkString) -> Result<Vec<u8>, u16> {
         let slot = self.get_hash_slot(key)?;
 
         let list = match slot.get(key) {
             Some(RedisDataType::List(list)) => list,
-            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
             None => return Ok(Integer::from(0).into()),
         };
 
@@ -81,14 +55,14 @@ impl StorageActor {
 
         let list = match slot.get(key) {
             Some(RedisDataType::List(list)) => list,
-            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
             None => return Ok(Array::to_resp_vec(&[])),
         };
 
         let (start, stop): (&str, &str) = (start.into(), stop.into());
         let (start, stop) = match (start.parse(), stop.parse()) {
             (Ok(start), Ok(stop)) => (start, stop),
-            _ => return Ok(SimpleError::from(Error::ValueNotAnInteger).into()),
+            _ => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
         };
 
         let slice = &slice_wrap_iter(list.iter(), start, stop, list.len());
@@ -106,7 +80,7 @@ impl StorageActor {
 
         let list = match slot.get_mut(key) {
             Some(RedisDataType::List(list)) => list,
-            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
             None => return Ok(Array::to_resp_vec(&[])),
         };
 
@@ -118,7 +92,7 @@ impl StorageActor {
         let count_str: String = count_str.into();
         let n: i64 = match count_str.parse::<i64>() {
             Ok(value) if value >= 0 => value,
-            _ => return Ok(SimpleError::from(Error::ValueNotAnInteger).into()),
+            _ => return Ok(SimpleError::from(OperationError::ValueNotAnInteger).into()),
         };
 
         let mut popped = Vec::new();
@@ -133,27 +107,26 @@ impl StorageActor {
         if n > 1 {
             Ok(Array::to_resp_vec(&popped.iter().collect::<Vec<_>>()))
         } else {
-            Ok(popped.into_iter().next().map_or(BulkString::from("").into(), Into::into))
+            Ok(popped
+                .into_iter()
+                .next()
+                .map_or(BulkString::from("").into(), Into::into))
         }
     }
 
     // https://redis.io/docs/latest/commands/lindex
-    pub(super) fn lindex(
-        &self,
-        key: BulkString,
-        index: BulkString,
-    ) -> Result<Vec<u8>, u16> {
+    pub(super) fn lindex(&self, key: BulkString, index: BulkString) -> Result<Vec<u8>, u16> {
         let slot = self.get_hash_slot(&key)?;
 
         let list = match slot.get(&key) {
             Some(RedisDataType::List(list)) => list,
-            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
-            None => return Ok(BulkString::from("").into()), 
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
+            None => return Ok(BulkString::from("").into()),
         };
-        let index:String = index.into();
+        let index: String = index.into();
         let index: i64 = match index.parse() {
             Ok(value) => value,
-            _ => return Ok(SimpleError::from(Error::ValueNotAnInteger).into()),
+            _ => return Ok(SimpleError::from(OperationError::ValueNotAnInteger).into()),
         };
 
         let mapped_index = map_index(index, list.len());
@@ -164,6 +137,56 @@ impl StorageActor {
         }
 
         Ok(BulkString::from("").into())
+    }
+
+    // https://redis.io/docs/latest/commands/linsert
+    pub(super) fn linsert(
+        &mut self,
+        key: BulkString,
+        position: BulkString,
+        pivot: BulkString,
+        element: BulkString,
+    ) -> Result<Vec<u8>, u16> {
+        let slot = self.get_hash_slot_mut(&key)?;
+
+        let list = match slot.get_mut(&key) {
+            Some(RedisDataType::List(list)) => list,
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
+            None => return Ok(Integer::from(-1).into()), // Key does not exist
+        };
+
+        let position: String = position.into();
+        let before = match position.as_str() {
+            "BEFORE" => true,
+            "AFTER" => false,
+            _ => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
+        };
+
+        let mut inserted = false;
+        let mut new_list = LinkedList::new();
+
+        while let Some(item) = list.pop_front() {
+            if item == pivot {
+                if before {
+                    new_list.push_back(element.clone());
+                }
+                new_list.push_back(item.clone());
+                if !before {
+                    new_list.push_back(element.clone());
+                }
+                inserted = true;
+            } else {
+                new_list.push_back(item);
+            }
+        }
+
+        *list = new_list;
+
+        if inserted {
+            Ok(Integer::from(list.len() as i64).into())
+        } else {
+            Ok(Integer::from(-1).into()) // Pivot not found
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 mod error;
 mod pub_sub;
+mod storage;
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -10,32 +11,39 @@ use std::{
     thread,
 };
 
-use error::Error;
+pub use error::InternalError;
 use log::LogMsg;
-use pub_sub::PubSubBroker;
+use pub_sub::{PubSubBroker, PubSubEnvelope};
 use redis_cmd::Command;
 use redis_resp::SimpleError;
-
-use crate::storage::{self, StorageActor};
+use storage::{StorageActor, StorageEnvelope};
 
 #[derive(Debug)]
 pub struct Node {
-    broker_tx: Sender<pub_sub::PubSubEnvelope>,
-    storage_tx: Sender<storage::StorageEnvelope>,
+    broker_tx: Sender<PubSubEnvelope>,
+    storage_tx: Sender<StorageEnvelope>,
     logger_tx: Sender<LogMsg>,
 }
 
 impl Node {
-    pub fn start(append_file_path: PathBuf, logger_tx: Sender<LogMsg>) -> Result<Self, Error> {
-        let (broker_tx, broker_rx) = mpsc::channel::<pub_sub::PubSubEnvelope>();
-        let (storage_tx, storage_rx) = mpsc::channel::<storage::StorageEnvelope>();
+    pub fn start(
+        append_file_path: PathBuf,
+        logger_tx: Sender<LogMsg>,
+    ) -> Result<Self, InternalError> {
+        let (broker_tx, broker_rx) = mpsc::channel();
+        let (storage_tx, storage_rx) = mpsc::channel();
 
         let mut pub_sub_broker = PubSubBroker::start(logger_tx.clone());
-        let mut storage_actor = StorageActor::start(append_file_path, logger_tx.clone()).unwrap();
+        let mut storage_actor = StorageActor::start(append_file_path, logger_tx.clone())?;
+
+        let logger_tx_clone = logger_tx.clone();
 
         thread::spawn(move || {
             while let Ok(envel) = broker_rx.recv() {
-                pub_sub_broker.process(envel).unwrap();
+                if let Err(err) = pub_sub_broker.process(envel) {
+                    logger_tx_clone.send(log::error!("{err}")).unwrap();
+                    break;
+                }
             }
         });
 
@@ -52,17 +60,26 @@ impl Node {
         })
     }
 
-    pub fn handle_client_conn(&self, client_conn: TcpStream) -> Result<(), Error> {
+    pub fn handle_client_conn(&self, client_conn: TcpStream) -> Result<(), InternalError> {
         let mut reader = BufReader::new(client_conn);
 
         let bytes = match reader.fill_buf() {
             Ok(bytes) if !bytes.is_empty() => bytes,
-            Ok(_) => todo!(),
-            Err(_) => todo!(),
+            Ok(_) => {
+                self.logger_tx
+                    .send(log::debug!("cliente desconectado"))
+                    .unwrap();
+
+                return Ok(());
+            }
+            Err(err) => {
+                return Err(InternalError::StreamRead(err));
+            }
         };
 
         self.logger_tx
-            .send(log::debug!("recibidos {} bytes", bytes.len()))?;
+            .send(log::debug!("recibidos {} bytes del cliente", bytes.len()))
+            .unwrap();
 
         let cmd = Command::try_from(bytes);
 
@@ -79,13 +96,18 @@ impl Node {
             Err(err) => {
                 client_conn
                     .write_all(&Vec::from(SimpleError::from(err)))
-                    .unwrap();
+                    .map_err(InternalError::StreamWrite)?;
+
                 Ok(())
             }
         }
     }
 
-    fn execute_command(&self, mut client_conn: TcpStream, cmd: Command) -> Result<(), ()> {
+    fn execute_command(
+        &self,
+        mut client_conn: TcpStream,
+        cmd: Command,
+    ) -> Result<(), InternalError> {
         let (reply_tx, reply_rx) = mpsc::channel();
 
         match cmd {
@@ -97,10 +119,12 @@ impl Node {
                 while let Ok(reply) = reply_rx.recv() {
                     let reply = match reply {
                         Ok(reply) => reply,
-                        Err(_hash) => todo!("TRAER VALOR DEL NODO QUE TIENE EL HASH"),
+                        Err(_hash) => todo!("traer valor del nodo del cluster que tiene el hash"),
                     };
 
-                    client_conn.write_all(&reply).unwrap();
+                    client_conn
+                        .write_all(&reply)
+                        .map_err(InternalError::StreamWrite)?;
                 }
             }
             Command::PubSub(cmd) => {
@@ -108,7 +132,7 @@ impl Node {
                     .send(pub_sub::PubSubEnvelope { client_conn, cmd })
                     .unwrap();
             }
-            Command::Cluster(_command) => todo!(),
+            Command::Cluster(_cmd) => todo!("implementar la ejecucion de comandos del cluster"),
         };
 
         Ok(())

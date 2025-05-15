@@ -48,7 +48,7 @@ impl TryFrom<Array> for Command {
         let cmd_str = String::from(cmd_bs).to_ascii_uppercase();
 
         let cmd = match cmd_str.as_str() {
-            "DEL" => Self::Storage(Del::from_bulk_strings(args)?.into()),
+            "DEL" => Self::Storage(Del::from_args(args)?.into()),
 
             "SET" => Self::Storage(Set::from_args(args)?.into()),
             "GET" => Self::Storage(Get::from_args(args)?.into()),

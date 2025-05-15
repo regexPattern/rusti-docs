@@ -1,6 +1,6 @@
-use redis_resp::{BulkString, RespDataType, SimpleString, SimpleError};
+use redis_resp::{BulkString, RespDataType, SimpleError, SimpleString};
 
-use super::{Shard, data_type::RedisDataType, error::Error};
+use super::{StorageActor, data_type::RedisDataType, error::OperationError};
 
 impl StorageActor {
     // https://redis.io/docs/latest/commands/get
@@ -30,14 +30,14 @@ impl StorageActor {
 
         let existing_value = match slot.get_mut(&key) {
             Some(RedisDataType::String(existing_value)) => existing_value,
-            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
             None => {
                 slot.insert(key.clone(), RedisDataType::String(value.clone()));
                 return Ok(value.len().to_string().into_bytes());
             }
         };
         let mut existing_value = existing_value.to_string();
-        let value= value.to_string();
+        let value = value.to_string();
         existing_value.push_str(&value);
         let updated_key = BulkString::from(existing_value.to_string());
         slot.insert(key, RedisDataType::String(updated_key));
@@ -49,19 +49,22 @@ impl StorageActor {
 
         let existing_value = match slot.get_mut(&key) {
             Some(RedisDataType::String(existing_value)) => existing_value,
-            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
             None => {
                 slot.insert(key.clone(), RedisDataType::String(BulkString::from("-1")));
                 return Ok(BulkString::from("-1").into());
             }
         };
         let existing_value = existing_value.to_string();
-        
+
         let new_value = match existing_value.parse::<i64>() {
             Ok(value) => value - 1,
-            Err(_) => return Ok(SimpleError::from(Error::ValueNotAnInteger).into()),
+            Err(_) => return Ok(SimpleError::from(OperationError::ValueNotAnInteger).into()),
         };
-        slot.insert(key, RedisDataType::String(BulkString::from(new_value.to_string())));
+        slot.insert(
+            key,
+            RedisDataType::String(BulkString::from(new_value.to_string())),
+        );
 
         Ok(BulkString::from(new_value.to_string()).into())
     }
@@ -70,21 +73,23 @@ impl StorageActor {
 
         let existing_value = match slot.get_mut(&key) {
             Some(RedisDataType::String(existing_value)) => existing_value,
-            Some(_) => return Ok(SimpleError::from(Error::WrongType).into()),
+            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
             None => {
-                slot.insert(key.clone(), RedisDataType::String(BulkString::from("0")));
+                slot.insert(key.clone(), RedisDataType::String(BulkString::from("1")));
                 return Ok(BulkString::from("1").into());
             }
         };
         let existing_value = existing_value.to_string();
-        
+
         let new_value = match existing_value.parse::<i64>() {
             Ok(value) => value + 1,
-            Err(_) => return Ok(SimpleError::from(Error::ValueNotAnInteger).into()),
+            Err(_) => return Ok(SimpleError::from(OperationError::ValueNotAnInteger).into()),
         };
-        slot.insert(key, RedisDataType::String(BulkString::from(new_value.to_string())));
+        slot.insert(
+            key,
+            RedisDataType::String(BulkString::from(new_value.to_string())),
+        );
 
         Ok(BulkString::from(new_value.to_string()).into())
     }
 }
-

@@ -24,6 +24,14 @@ impl SAdd {
     }
 }
 
+impl From<SAdd> for Vec<BulkString> {
+    fn from(cmd: SAdd) -> Self {
+        let mut args = vec![BulkString::from("SADD"), cmd.key];
+        args.extend(cmd.members);
+        args
+    }
+}
+
 /// Remove the specified members from the set stored at key. Specified members that are not a member of this set are ignored. If key does not exist, it is treated as an empty set and this command returns 0.
 ///
 /// https://redis.io/docs/latest/commands/srem
@@ -42,6 +50,14 @@ impl SRem {
     }
 }
 
+impl From<SRem> for Vec<BulkString> {
+    fn from(cmd: SRem) -> Self {
+        let mut args = vec![BulkString::from("SREM"), cmd.key];
+        args.extend(cmd.members);
+        args
+    }
+}
+
 /// Returns the set cardinality (number of elements) of the set stored at key.
 ///
 /// https://redis.io/docs/latest/commands/scard
@@ -55,6 +71,12 @@ impl SCard {
         Ok(Self {
             key: args.next().ok_or(Error::MissingArgument)?,
         })
+    }
+}
+
+impl From<SCard> for Vec<BulkString> {
+    fn from(cmd: SCard) -> Self {
+        vec![BulkString::from("SCARD"), cmd.key]
     }
 }
 
@@ -76,6 +98,12 @@ impl SIsMember {
     }
 }
 
+impl From<SIsMember> for Vec<BulkString> {
+    fn from(cmd: SIsMember) -> Self {
+        vec![BulkString::from("SISMEMBER"), cmd.key, cmd.member]
+    }
+}
+
 /// Returns all the members of the set value stored at key.
 ///
 /// https://redis.io/docs/latest/commands/smembers
@@ -89,5 +117,11 @@ impl SMembers {
         Ok(Self {
             key: args.next().ok_or(Error::MissingArgument)?,
         })
+    }
+}
+
+impl From<SMembers> for Vec<BulkString> {
+    fn from(cmd: SMembers) -> Self {
+        vec![BulkString::from("SMEMBERS"), cmd.key]
     }
 }
