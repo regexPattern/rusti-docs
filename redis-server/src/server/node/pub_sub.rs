@@ -133,12 +133,10 @@ impl PubSubBroker {
             }
         });
 
-        logger_tx
-            .send(log::info!(
-                "manteniendo viva conexión de cliente {}",
-                client.id
-            ))
-            .unwrap();
+        logger_tx.send(log::info!(
+            "manteniendo viva conexión de cliente {}",
+            client.id
+        ))?;
 
         Ok(client)
     }
@@ -162,12 +160,10 @@ impl PubSubBroker {
                     match cmd {
                         Ok(cmd) => Self::handle_incoming_command(client, state, cmd, logger_tx)?,
                         Err(err) => {
-                            logger_tx
-                                .send(log::info!(
-                                    "comando enviado por cliente {} es invalido",
-                                    client.id,
-                                ))
-                                .unwrap();
+                            logger_tx.send(log::info!(
+                                "comando enviado por cliente {} es invalido",
+                                client.id,
+                            ))?;
 
                             client.tx.send(SimpleError::from(err).into())?;
                             continue;
@@ -196,8 +192,7 @@ impl PubSubBroker {
             _ => {
                 client
                     .tx
-                    .send(SimpleError::from(OperationError::NotAPubSubCommand).into())
-                    .unwrap();
+                    .send(SimpleError::from(OperationError::NotAPubSubCommand).into())?;
 
                 Ok(())
             }
@@ -217,12 +212,10 @@ impl PubSubBroker {
             let chan_subs = state.entry(chan_name.clone()).or_default();
             chan_subs.insert(client.id, client.tx.clone());
 
-            logger_tx
-                .send(log::info!(
-                    "cliente {} suscrito al channel {chan_name}",
-                    client.id
-                ))
-                .unwrap();
+            logger_tx.send(log::info!(
+                "cliente {} suscrito al channel {chan_name}",
+                client.id
+            ))?;
 
             let n_client_subs = Self::count_client_subs(client.id, &state);
 
@@ -257,12 +250,10 @@ impl PubSubBroker {
             }
         }
 
-        self.logger_tx
-            .send(log::info!(
-                "publicados {} bytes al channel {chan_name}",
-                msg.len()
-            ))
-            .unwrap();
+        self.logger_tx.send(log::info!(
+            "publicados {} bytes al channel {chan_name}",
+            msg.len()
+        ))?;
 
         Ok(Integer::from(n_chan_subs as i64).into())
     }
@@ -299,12 +290,10 @@ impl PubSubBroker {
         for chan_name in channels {
             if let Some(chan_subs) = state.get_mut(&chan_name) {
                 if chan_subs.remove(&client.id).is_some() {
-                    logger_tx
-                        .send(log::info!(
-                            "desuscrito cliente {} del channel {chan_name}",
-                            client.id
-                        ))
-                        .unwrap();
+                    logger_tx.send(log::info!(
+                        "desuscrito cliente {} del channel {chan_name}",
+                        client.id
+                    ))?;
                 }
 
                 if chan_subs.is_empty() {
@@ -409,11 +398,9 @@ impl PubSubBroker {
             chan_subs.remove(&client_id);
         }
 
-        logger_tx
-            .send(log::info!(
-                "eliminadas todas las subscripciones de cliente {client_id}"
-            ))
-            .unwrap();
+        logger_tx.send(log::info!(
+            "eliminadas todas las subscripciones de cliente {client_id}"
+        ))?;
 
         Ok(())
     }

@@ -1,15 +1,18 @@
-use std::{fmt, io};
+use std::{fmt, io, sync::mpsc::SendError};
 
+use log::LogMsg;
+use redis_cmd::storage::StorageCommand;
 use redis_resp::SimpleError;
 
 /// Errores que pueden ocurrir en el funcionamiento interno del storage actor, no relacionados a las operaciones aplicadas por los comandos.
 #[derive(Debug)]
-#[allow(clippy::enum_variant_names)]
 pub enum InternalError {
+    LogSend(SendError<LogMsg>),
+    PersistenceActorSend(SendError<StorageCommand>),
+    PersistenceFileCommand(redis_cmd::Error),
+    PersistenceFileFormat(redis_resp::Error),
     PersistenceFileOpen(io::Error),
     PersistenceFileRead(io::Error),
-    PersistenceFileFormat(redis_resp::Error),
-    PersistenceFileCommand(redis_cmd::Error),
     PersistenceFileWrite(io::Error),
 }
 
@@ -18,6 +21,11 @@ impl std::error::Error for InternalError {}
 impl fmt::Display for InternalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            InternalError::LogSend(err) => write!(f, "{err}"),
+            InternalError::PersistenceActorSend(err) => write!(
+                f,
+                "error enviando comando ejectuado por el canal del persistence actor: {err}"
+            ),
             InternalError::PersistenceFileOpen(err) => {
                 write!(f, "error abriendo archivo de persistencia: {err}")
             }
@@ -36,6 +44,12 @@ impl fmt::Display for InternalError {
                 write!(f, "error escribiendo al archivo de persistencia: {err}")
             }
         }
+    }
+}
+
+impl From<SendError<LogMsg>> for InternalError {
+    fn from(err: SendError<LogMsg>) -> Self {
+        Self::LogSend(err)
     }
 }
 

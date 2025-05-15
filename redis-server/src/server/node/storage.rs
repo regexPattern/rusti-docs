@@ -64,21 +64,19 @@ impl StorageActor {
             persistence_tx,
         };
 
-        storage_actor.rebuild_from_persistence_file(&mut persistence_file)?;
+        storage_actor.rebuild_from_persistence_file(&mut persistence_file, &logger_tx)?;
+
+        logger_tx.send(log::info!(
+            "persistiendo base de datos al archivo {:?}",
+            append_file_path
+        ))?;
 
         thread::spawn(move || {
-            logger_tx
-                .send(log::info!(
-                    "persistiendo base de datos al archivo {:?}",
-                    append_file_path
-                ))
-                .unwrap();
-
             for cmd in persistence_rx {
                 let bytes = Vec::from(Command::Storage(cmd));
 
                 if let Err(err) = Self::write_to_persistence_file(&mut persistence_file, &bytes) {
-                    logger_tx.send(log::error!("{err}")).unwrap();
+                    let _ = logger_tx.send(log::error!("{err}"));
                 }
             }
         });
@@ -86,13 +84,18 @@ impl StorageActor {
         Ok(storage_actor)
     }
 
-    fn rebuild_from_persistence_file(&mut self, file: &mut File) -> Result<(), InternalError> {
+    fn rebuild_from_persistence_file(
+        &mut self,
+        file: &mut File,
+        logger_tx: &Sender<LogMsg>,
+    ) -> Result<(), InternalError> {
         let mut bytes = Vec::new();
 
         file.read_to_end(&mut bytes)
             .map_err(InternalError::PersistenceFileRead)?;
 
         let mut remaining_bytes = bytes.as_slice();
+        let mut n_applied_cmds = 0;
 
         while !remaining_bytes.is_empty() {
             let result = Array::parse_incremental(remaining_bytes)
@@ -111,6 +114,15 @@ impl StorageActor {
             }
 
             remaining_bytes = result.1;
+            n_applied_cmds += 1;
+        }
+
+        if n_applied_cmds > 0 {
+            logger_tx.send(log::debug!(
+                "recuperados {n_applied_cmds} comandos del archivo de persistencia"
+            ))?;
+
+            logger_tx.send(log::info!("reestablecido estado de la base de datos"))?;
         }
 
         Ok(())
@@ -122,7 +134,7 @@ impl StorageActor {
         file.sync_all().map_err(InternalError::PersistenceFileWrite)
     }
 
-    pub fn process(&mut self, envel: StorageEnvelope) {
+    pub fn process(&mut self, envel: StorageEnvelope) -> Result<(), InternalError> {
         let reply = self.apply(envel.cmd.clone());
 
         if reply.is_ok() {
@@ -130,6 +142,8 @@ impl StorageActor {
         }
 
         envel.reply_tx.send(reply).unwrap();
+
+        Ok(())
     }
 
     fn apply(&mut self, cmd: StorageCommand) -> Result<Vec<u8>, u16> {

@@ -49,7 +49,7 @@ impl Node {
 
         thread::spawn(move || {
             while let Ok(envel) = storage_rx.recv() {
-                storage_actor.process(envel);
+                storage_actor.process(envel).unwrap();
             }
         });
 
@@ -66,10 +66,7 @@ impl Node {
         let bytes = match reader.fill_buf() {
             Ok(bytes) if !bytes.is_empty() => bytes,
             Ok(_) => {
-                self.logger_tx
-                    .send(log::debug!("cliente desconectado"))
-                    .unwrap();
-
+                self.logger_tx.send(log::debug!("cliente desconectado"))?;
                 return Ok(());
             }
             Err(err) => {
@@ -78,8 +75,7 @@ impl Node {
         };
 
         self.logger_tx
-            .send(log::debug!("recibidos {} bytes del cliente", bytes.len()))
-            .unwrap();
+            .send(log::debug!("recibidos {} bytes del cliente", bytes.len()))?;
 
         let cmd = Command::try_from(bytes);
 
@@ -90,7 +86,7 @@ impl Node {
 
         match cmd {
             Ok(cmd) => {
-                self.execute_command(client_conn, cmd).unwrap();
+                self.execute_command(client_conn, cmd)?;
                 Ok(())
             }
             Err(err) => {
@@ -113,8 +109,7 @@ impl Node {
         match cmd {
             Command::Storage(cmd) => {
                 self.storage_tx
-                    .send(storage::StorageEnvelope { cmd, reply_tx })
-                    .unwrap();
+                    .send(storage::StorageEnvelope { cmd, reply_tx })?;
 
                 while let Ok(reply) = reply_rx.recv() {
                     let reply = match reply {
@@ -129,8 +124,7 @@ impl Node {
             }
             Command::PubSub(cmd) => {
                 self.broker_tx
-                    .send(pub_sub::PubSubEnvelope { client_conn, cmd })
-                    .unwrap();
+                    .send(pub_sub::PubSubEnvelope { client_conn, cmd })?;
             }
             Command::Cluster(_cmd) => todo!("implementar la ejecucion de comandos del cluster"),
         };

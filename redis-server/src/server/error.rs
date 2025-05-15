@@ -1,4 +1,6 @@
-use std::{fmt, io};
+use std::{fmt, io, sync::mpsc::SendError};
+
+use log::LogMsg;
 
 use crate::thread_pool;
 
@@ -9,6 +11,7 @@ pub enum InternalError {
     AddrBind(io::Error),
     LogFileOpen(io::Error),
     LogFileWrite(io::Error),
+    LogSend(SendError<LogMsg>),
     Node(node::InternalError),
     ThreadPool(thread_pool::Error),
 }
@@ -25,9 +28,18 @@ impl fmt::Display for InternalError {
             InternalError::LogFileWrite(err) => {
                 write!(f, "error escribiendo al archivo de logs: {err}")
             }
+            InternalError::LogSend(err) => {
+                write!(f, "error enviando mensaje de log por el canal: {err}")
+            }
             InternalError::Node(err) => write!(f, "{err}"),
             InternalError::ThreadPool(err) => write!(f, "{err}"),
         }
+    }
+}
+
+impl From<SendError<LogMsg>> for InternalError {
+    fn from(err: SendError<LogMsg>) -> Self {
+        Self::LogSend(err)
     }
 }
 

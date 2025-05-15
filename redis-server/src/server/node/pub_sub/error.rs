@@ -3,6 +3,7 @@ use std::{
     sync::{MutexGuard, PoisonError, mpsc::SendError},
 };
 
+use log::LogMsg;
 use redis_resp::SimpleError;
 
 use super::State;
@@ -10,7 +11,8 @@ use super::State;
 /// Errores que pueden ocurrir en el funcionamiento interno del pub/sub broker, no relacionados a las operaciones de pub/sub realizadas por los clientes.
 #[derive(Debug)]
 pub enum InternalError {
-    MsgDelivery(SendError<Vec<u8>>),
+    LogSend(SendError<LogMsg>),
+    ClientReplySend(SendError<Vec<u8>>),
     PoisonState,
     Io(io::Error),
 }
@@ -20,7 +22,8 @@ impl std::error::Error for InternalError {}
 impl fmt::Display for InternalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            InternalError::MsgDelivery(err) => {
+            InternalError::LogSend(err) => write!(f, "{err}"),
+            InternalError::ClientReplySend(err) => {
                 write!(f, "error enviando mensaje al cliente: {err}")
             }
             InternalError::PoisonState => write!(f, "error lockeando mutex"),
@@ -29,9 +32,15 @@ impl fmt::Display for InternalError {
     }
 }
 
+impl From<SendError<LogMsg>> for InternalError {
+    fn from(err: SendError<LogMsg>) -> Self {
+        Self::LogSend(err)
+    }
+}
+
 impl From<SendError<Vec<u8>>> for InternalError {
     fn from(err: SendError<Vec<u8>>) -> Self {
-        Self::MsgDelivery(err)
+        Self::ClientReplySend(err)
     }
 }
 

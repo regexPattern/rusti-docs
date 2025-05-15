@@ -68,14 +68,13 @@ impl Server {
         let listener = TcpListener::bind(addr).map_err(InternalError::AddrBind)?;
 
         self.logger_tx
-            .send(log::info!("servidor escuchando en {:?}", addr))
-            .unwrap();
+            .send(log::info!("servidor escuchando en {:?}", addr))?;
 
         for conn in listener.incoming() {
             let conn = match conn {
                 Ok(conn) => conn,
                 Err(err) => {
-                    self.logger_tx.send(log::error!("{err}")).unwrap();
+                    self.logger_tx.send(log::error!("{err}"))?;
                     continue;
                 }
             };
