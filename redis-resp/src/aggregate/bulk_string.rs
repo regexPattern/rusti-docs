@@ -17,6 +17,10 @@ impl BulkString {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    pub fn contains(&self, pattern: &Self) -> bool {
+        self.0.contains(&pattern.0)
+    }
 }
 
 impl TryFrom<&[u8]> for BulkString {

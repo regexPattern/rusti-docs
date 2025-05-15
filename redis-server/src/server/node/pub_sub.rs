@@ -60,10 +60,14 @@ impl PubSubBroker {
             PubSubCommand::Unsubscribe(Unsubscribe { channels }) => {
                 Self::fake_unsubscribe(envel.client_conn, channels)?;
             }
-            PubSubCommand::PubSubChannels(PubSubChannels { pattern: _pattern }) => todo!(),
-            PubSubCommand::PubSubNumSub(PubSubNumSub {
-                channels: _channels,
-            }) => todo!(),
+            PubSubCommand::PubSubChannels(PubSubChannels { pattern }) => {
+                let reply = self.channels(&pattern)?;
+                envel.client_conn.write_all(&reply)?;
+            }
+            PubSubCommand::PubSubNumSub(PubSubNumSub { channels }) => {
+                let reply = self.numsub(channels)?;
+                envel.client_conn.write_all(&reply)?;
+            }
         };
 
         Ok(())
@@ -302,6 +306,10 @@ impl PubSubBroker {
                         ))
                         .unwrap();
                 }
+
+                if chan_subs.is_empty() {
+                    state.remove(&chan_name);
+                }
             }
 
             let n_client_subs = Self::count_client_subs(client.id, &state);
@@ -316,6 +324,44 @@ impl PubSubBroker {
         }
 
         Ok(())
+    }
+
+    // https://redis.io/docs/latest/commands/pubsub-channels
+    fn channels(&self, pattern: &Option<BulkString>) -> Result<Vec<u8>, InternalError> {
+        let state = self.state.lock()?;
+
+        let filtered_chans: Vec<_> = state
+            .iter()
+            .filter(|(_, chan_subs)| !chan_subs.is_empty())
+            .filter_map(|(chan_name, _)| match pattern {
+                Some(p) if chan_name.contains(p) => Some(chan_name),
+                None => Some(chan_name),
+                _ => None,
+            })
+            .cloned()
+            .map(RespDataType::BulkString)
+            .collect();
+
+        Ok(Array::from(filtered_chans).into())
+    }
+
+    // https://redis.io/docs/latest/commands/pubsub-numsub
+    fn numsub(&self, channels: Vec<BulkString>) -> Result<Vec<u8>, InternalError> {
+        let state = self.state.lock()?;
+
+        let mut chans_subs = Vec::new();
+
+        for chan_name in channels {
+            let n_chan_subs = match state.get(&chan_name) {
+                Some(chan_subs) => chan_subs.len() as i64,
+                _ => 0,
+            };
+
+            chans_subs.push(RespDataType::BulkString(chan_name));
+            chans_subs.push(RespDataType::Integer(n_chan_subs.into()));
+        }
+
+        Ok(Array::from(chans_subs).into())
     }
 
     fn fake_unsubscribe(
