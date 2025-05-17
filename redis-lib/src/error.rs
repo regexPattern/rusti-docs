@@ -1,7 +1,4 @@
-use std::{
-    fmt, io,
-    sync::{MutexGuard, PoisonError, mpsc::SendError},
-};
+use std::{fmt, io, sync::mpsc::SendError};
 
 // use super::State;
 
@@ -10,7 +7,7 @@ pub enum Error {
     ClientDisconnect,
     MsgDelivery(SendError<Vec<u8>>),
     PoisonState,
-
+    InvalidCommand(String),
     Io(io::Error),
     Log(log::Error),
 }
@@ -26,6 +23,7 @@ impl fmt::Display for Error {
             Error::PoisonState => write!(f, "error lockeando mutex"), //no hara falta....
             Error::Io(err) => write!(f, "{err}"),
             Error::Log(err) => write!(f, "{err}"),
+            Error::InvalidCommand(err) => write!(f, "error en el comando: {err}"),
         }
     }
 }

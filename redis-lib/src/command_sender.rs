@@ -1,6 +1,3 @@
-//CREO Q ESTO BOOOOM!
-//CREO Q ESTO BOOOOM!
-
 use redis_cmd::Command;
 use redis_cmd::pub_sub::PubSubCommand;
 

@@ -1,3 +1,5 @@
+//PODEMOS BORRAR ESTEE!!!!!!
+
 // mod error;
 
 use std::{
@@ -53,9 +55,17 @@ impl PubSubBroker {
         }
     }
 
+
+    // pub fn process_spub_sub_cmd() -> Sender<cmd_pub_sub_envelope> {
+    //     // es la funcion  de abajo solo q devuklevbe el
+    //     //cmd_pub_sub_tx  para poder mandar comandos!!
+    //      Ok((cmd_pub_sub_tx))
+    // }
+
     pub fn process(&mut self, mut envel: PubSubEnvelope) -> Result<(), Error> {
         match envel.cmd {
             PubSubCommand::Subscribe(Subscribe { channels }) => {
+                // keep alive  devuelve  el cmd_pub_sub_tx  para podere mandar comandos
                 let (mut client_conn, client_id, client_tx) =
                     self.keep_alive(envel.server_conn, self.logger_tx.clone())?;
 
@@ -86,6 +96,7 @@ impl PubSubBroker {
             PubSubCommand::PubSubNumSub(PubSubNumSub { channels }) => todo!(),
         };
 
+        //  ESTO TIENE Q DEVOLVER  cmd_pub_sub_tx  asi q  va a estar dividia en 2 funciones
         Ok(())
     }
 
@@ -192,16 +203,23 @@ impl PubSubBroker {
 
         state: &Arc<Mutex<State>>,
         logger_tx: &Sender<LogMsg>,
+
+        //cmd_pub_sub_rx  
     ) -> Result<(), Error> {
         // EN ESTE THREAD ESCUCHO LOS COMANDOS POR EL CHANNEL QUE CREE ANTES
         //cmd_pub_sub_rx
-        // al cliente le devuelvo el senderrrr xa q l tenga yu me peuda enviuars comamndps!!
+        // al cliente le devuelvo el senderrrr xa q l tenga GUI me peuda enviuars comamndps!!
         // cmd_pub_sub_tx
 
         let read_stream = server_conn.try_clone()?;
         let mut reply_stream = server_conn;
 
         let mut reader = BufReader::new(read_stream);
+
+        //recibo comandos de la GUIA
+        // for cmd in cmd_pub_su_rx{
+
+        // }
 
         loop {
             match reader.fill_buf() {

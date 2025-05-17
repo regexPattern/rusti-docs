@@ -1,6 +1,12 @@
 [package]
-name = "docs-editor"
+name = "docs_editor"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+eframe = "0.22.0"
+
+log = { path = "../log" }
+redis_cmd = { path = "../redis-cmd" }
+redis_resp = { path = "../redis-resp" }
+redis_lib = { path = "../redis-lib"}

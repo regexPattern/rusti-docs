@@ -6,4 +6,4 @@ edition = "2024"
 [dependencies]
 log = { path = "../log" }
 redis_cmd = { path = "../redis-cmd" }
-redis_resp = { path = "../redis-resp"}
+redis_resp = { path = "../redis-resp" }
