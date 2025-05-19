@@ -17,11 +17,6 @@ impl Del {
     pub fn from_args(mut args: impl Iterator<Item = BulkString>) -> Result<Self, Error> {
         let key = args.next().ok_or(Error::MissingArgument)?;
         let keys: Vec<BulkString> = args.collect();
-
-        if keys.is_empty() {
-            return Err(Error::MissingArgument);
-        }
-
         Ok(Self { key, keys })
     }
 }
