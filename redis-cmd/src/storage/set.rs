@@ -1,3 +1,5 @@
+use std::fmt;
+
 use redis_resp::BulkString;
 
 use crate::Error;
@@ -32,6 +34,18 @@ impl From<SAdd> for Vec<BulkString> {
     }
 }
 
+impl fmt::Display for SAdd {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SADD {}", self.key)?;
+
+        for m in &self.members {
+            write!(f, " {}", m)?;
+        }
+
+        Ok(())
+    }
+}
+
 /// Remove the specified members from the set stored at key. Specified members that are not a member of this set are ignored. If key does not exist, it is treated as an empty set and this command returns 0.
 ///
 /// https://redis.io/docs/latest/commands/srem
@@ -58,6 +72,18 @@ impl From<SRem> for Vec<BulkString> {
     }
 }
 
+impl fmt::Display for SRem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SREM {}", self.key)?;
+
+        for m in &self.members {
+            write!(f, " {}", m)?;
+        }
+
+        Ok(())
+    }
+}
+
 /// Returns the set cardinality (number of elements) of the set stored at key.
 ///
 /// https://redis.io/docs/latest/commands/scard
@@ -77,6 +103,12 @@ impl SCard {
 impl From<SCard> for Vec<BulkString> {
     fn from(cmd: SCard) -> Self {
         vec![BulkString::from("SCARD"), cmd.key]
+    }
+}
+
+impl fmt::Display for SCard {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SCARD {}", self.key)
     }
 }
 
@@ -104,6 +136,12 @@ impl From<SIsMember> for Vec<BulkString> {
     }
 }
 
+impl fmt::Display for SIsMember {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SISMEMBER {} {}", self.key, self.member)
+    }
+}
+
 /// Returns all the members of the set value stored at key.
 ///
 /// https://redis.io/docs/latest/commands/smembers
@@ -123,5 +161,11 @@ impl SMembers {
 impl From<SMembers> for Vec<BulkString> {
     fn from(cmd: SMembers) -> Self {
         vec![BulkString::from("SMEMBERS"), cmd.key]
+    }
+}
+
+impl fmt::Display for SMembers {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SMEMBERS {}", self.key)
     }
 }

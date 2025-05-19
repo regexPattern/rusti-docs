@@ -4,6 +4,8 @@ mod list;
 mod set;
 mod string;
 
+use std::fmt;
+
 pub use generic::*;
 pub use hash::*;
 pub use list::*;
@@ -71,6 +73,37 @@ impl From<StorageCommand> for Vec<BulkString> {
             StorageCommand::Append(cmd) => cmd.into(),
             StorageCommand::Decr(cmd) => cmd.into(),
             StorageCommand::Incr(cmd) => cmd.into(),
+        }
+    }
+}
+
+impl fmt::Display for StorageCommand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StorageCommand::Del(cmd) => write!(f, "{cmd}"),
+            StorageCommand::HSet(cmd) => write!(f, "{cmd}"),
+            StorageCommand::HGet(cmd) => write!(f, "{cmd}"),
+            StorageCommand::HDel(cmd) => write!(f, "{cmd}"),
+            StorageCommand::HGetAll(cmd) => write!(f, "{cmd}"),
+            StorageCommand::HKeys(cmd) => write!(f, "{cmd}"),
+            StorageCommand::HVals(cmd) => write!(f, "{cmd}"),
+            StorageCommand::HExists(cmd) => write!(f, "{cmd}"),
+            StorageCommand::LPush(cmd) => write!(f, "{cmd}"),
+            StorageCommand::LInsert(cmd) => write!(f, "{cmd}"),
+            StorageCommand::LPop(cmd) => write!(f, "{cmd}"),
+            StorageCommand::LIndex(cmd) => write!(f, "{cmd}"),
+            StorageCommand::LLen(cmd) => write!(f, "{cmd}"),
+            StorageCommand::LRange(cmd) => write!(f, "{cmd}"),
+            StorageCommand::SAdd(cmd) => write!(f, "{cmd}"),
+            StorageCommand::SRem(cmd) => write!(f, "{cmd}"),
+            StorageCommand::SCard(cmd) => write!(f, "{cmd}"),
+            StorageCommand::SIsMember(cmd) => write!(f, "{cmd}"),
+            StorageCommand::SMembers(cmd) => write!(f, "{cmd}"),
+            StorageCommand::Set(cmd) => write!(f, "{cmd}"),
+            StorageCommand::Get(cmd) => write!(f, "{cmd}"),
+            StorageCommand::Append(cmd) => write!(f, "{cmd}"),
+            StorageCommand::Decr(cmd) => write!(f, "{cmd}"),
+            StorageCommand::Incr(cmd) => write!(f, "{cmd}"),
         }
     }
 }

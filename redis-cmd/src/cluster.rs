@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::Error;
 use redis_resp::BulkString;
 
@@ -18,6 +20,12 @@ impl From<ClusterCommand> for Vec<BulkString> {
             ClusterCommand::Nodes(cmd) => todo!(),
             ClusterCommand::Shards(cmd) => todo!(),
         }
+    }
+}
+
+impl fmt::Display for ClusterCommand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        todo!()
     }
 }
 

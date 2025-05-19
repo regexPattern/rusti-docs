@@ -217,6 +217,11 @@ impl PubSubBroker {
                 client.id
             ))?;
 
+            logger_tx.send(log::debug!(
+                "channel {chan_name} tiene {} suscriptores",
+                chan_subs.len()
+            ))?;
+
             let n_client_subs = Self::count_client_subs(client.id, &state);
 
             let reply = Array::from(vec![
@@ -293,6 +298,11 @@ impl PubSubBroker {
                     logger_tx.send(log::info!(
                         "desuscrito cliente {} del channel {chan_name}",
                         client.id
+                    ))?;
+
+                    logger_tx.send(log::debug!(
+                        "channel {chan_name} tiene {} suscriptores",
+                        chan_subs.len()
                     ))?;
                 }
 

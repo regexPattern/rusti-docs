@@ -1,3 +1,5 @@
+use std::fmt;
+
 use redis_resp::BulkString;
 
 use crate::error::Error;
@@ -29,5 +31,17 @@ impl From<Del> for Vec<BulkString> {
         let mut args = vec![BulkString::from("DEL"), cmd.key];
         args.extend(cmd.keys);
         args
+    }
+}
+
+impl fmt::Display for Del {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "DEL {}", self.key)?;
+
+        for key in &self.keys {
+            write!(f, " {key}")?;
+        }
+
+        Ok(())
     }
 }

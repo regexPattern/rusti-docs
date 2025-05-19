@@ -1,3 +1,5 @@
+use std::fmt;
+
 use redis_resp::BulkString;
 
 use crate::Error;
@@ -26,6 +28,12 @@ impl From<Set> for Vec<BulkString> {
     }
 }
 
+impl fmt::Display for Set {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SET {} {}", self.key, self.value)
+    }
+}
+
 /// Get the value of key. If the key does not exist the special value nil is returned. An error is returned if the value stored at key is not a string, because GET only handles string values.
 ///
 /// https://redis.io/docs/latest/commands/get
@@ -45,6 +53,12 @@ impl Get {
 impl From<Get> for Vec<BulkString> {
     fn from(cmd: Get) -> Self {
         vec![BulkString::from("GET"), cmd.key]
+    }
+}
+
+impl fmt::Display for Get {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "GET {}", self.key)
     }
 }
 
@@ -72,6 +86,12 @@ impl From<Append> for Vec<BulkString> {
     }
 }
 
+impl fmt::Display for Append {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "APPEND {} {}", self.key, self.value)
+    }
+}
+
 /// Decrements the number stored at key by one. If the key does not exist, it is set to 0 before performing the operation. An error is returned if the key contains a value of the wrong type or contains a string that can not be represented as integer. This operation is limited to 64 bit signed integers.
 ///
 /// https://redis.io/docs/latest/commands/decr
@@ -91,6 +111,12 @@ impl Decr {
 impl From<Decr> for Vec<BulkString> {
     fn from(cmd: Decr) -> Self {
         vec![BulkString::from("DECR"), cmd.key]
+    }
+}
+
+impl fmt::Display for Decr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "DECR {}", self.key)
     }
 }
 
@@ -117,5 +143,11 @@ impl Incr {
 impl From<Incr> for Vec<BulkString> {
     fn from(cmd: Incr) -> Self {
         vec![BulkString::from("INCR"), cmd.key]
+    }
+}
+
+impl fmt::Display for Incr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "INCR {}", self.key)
     }
 }

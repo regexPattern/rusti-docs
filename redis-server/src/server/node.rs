@@ -47,9 +47,14 @@ impl Node {
             }
         });
 
+        let logger_tx_clone = logger_tx.clone();
+
         thread::spawn(move || {
             while let Ok(envel) = storage_rx.recv() {
-                storage_actor.process(envel).unwrap();
+                if let Err(err) = storage_actor.process(envel) {
+                    logger_tx_clone.send(log::error!("{err}")).unwrap();
+                    break;
+                }
             }
         });
 
@@ -86,6 +91,8 @@ impl Node {
 
         match cmd {
             Ok(cmd) => {
+                self.logger_tx
+                    .send(log::info!("procesando comando {cmd}"))?;
                 self.execute_command(client_conn, cmd)?;
                 Ok(())
             }

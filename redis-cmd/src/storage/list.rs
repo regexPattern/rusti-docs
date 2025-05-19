@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::Error;
 use redis_resp::BulkString;
 
@@ -26,6 +28,18 @@ impl From<LPush> for Vec<BulkString> {
         let mut args = vec![BulkString::from("LPUSH"), cmd.key];
         args.extend(cmd.elements);
         args
+    }
+}
+
+impl fmt::Display for LPush {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "LPUSH {}", self.key)?;
+
+        for e in &self.elements {
+            write!(f, " {e}")?;
+        }
+
+        Ok(())
     }
 }
 
@@ -63,6 +77,16 @@ impl From<LInsert> for Vec<BulkString> {
     }
 }
 
+impl fmt::Display for LInsert {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "LINSERT {} {} {} {}",
+            self.key, self.pos, self.pivot, self.element
+        )
+    }
+}
+
 /// Removes and returns the first elements of the list stored at key.
 ///
 /// https://redis.io/docs/latest/commands/lpop
@@ -92,6 +116,18 @@ impl From<LPop> for Vec<BulkString> {
     }
 }
 
+impl fmt::Display for LPop {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "LPOP {}", self.key)?;
+
+        if let Some(count) = &self.count {
+            write!(f, " {count}")?;
+        }
+
+        Ok(())
+    }
+}
+
 /// Returns the element at index index in the list stored at key. The index is zero-based, so 0 means the first element, 1 the second element and so on. Negative indices can be used to designate elements starting at the tail of the list. Here, -1 means the last element, -2 means the penultimate and so forth.
 ///
 /// https://redis.io/docs/latest/commands/lindex
@@ -116,6 +152,12 @@ impl From<LIndex> for Vec<BulkString> {
     }
 }
 
+impl fmt::Display for LIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "LINDEX {} {}", self.key, self.index)
+    }
+}
+
 /// Returns the length of the list stored at key. If key does not exist, it is interpreted as an empty list and 0 is returned. An error is returned when the value stored at key is not a list.
 ///
 /// https://redis.io/docs/latest/commands/llen
@@ -135,6 +177,12 @@ impl LLen {
 impl From<LLen> for Vec<BulkString> {
     fn from(cmd: LLen) -> Self {
         vec![BulkString::from("LLEN"), cmd.key]
+    }
+}
+
+impl fmt::Display for LLen {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "LLEN {}", self.key)
     }
 }
 
@@ -161,5 +209,11 @@ impl LRange {
 impl From<LRange> for Vec<BulkString> {
     fn from(cmd: LRange) -> Self {
         vec![BulkString::from("LRANGE"), cmd.key, cmd.start, cmd.stop]
+    }
+}
+
+impl fmt::Display for LRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "LRANGE {} {} {}", self.key, self.start, self.stop)
     }
 }

@@ -5,6 +5,8 @@ mod error;
 pub mod pub_sub;
 pub mod storage;
 
+use std::fmt;
+
 use cluster::*;
 pub use error::Error;
 use pub_sub::*;
@@ -138,5 +140,15 @@ impl From<PubSubCommand> for Command {
 impl From<ClusterCommand> for Command {
     fn from(cmd: ClusterCommand) -> Self {
         Self::Cluster(cmd)
+    }
+}
+
+impl fmt::Display for Command {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Command::Storage(cmd) => write!(f, "{cmd}"),
+            Command::PubSub(cmd) => write!(f, "{cmd}"),
+            Command::Cluster(cmd) => write!(f, "{cmd}"),
+        }
     }
 }

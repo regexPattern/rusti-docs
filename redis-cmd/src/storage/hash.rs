@@ -1,3 +1,5 @@
+use std::fmt;
+
 use redis_resp::BulkString;
 
 use crate::Error;
@@ -37,6 +39,18 @@ impl From<HSet> for Vec<BulkString> {
     }
 }
 
+impl fmt::Display for HSet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "HSET {}", self.key)?;
+
+        for pair in self.field_value_pairs.chunks_exact(2) {
+            write!(f, " {} {}", pair[0], pair[1])?;
+        }
+
+        Ok(())
+    }
+}
+
 /// Returns the value associated with field in the hash stored at key.
 ///
 /// https://redis.io/docs/latest/commands/hget
@@ -58,6 +72,12 @@ impl HGet {
 impl From<HGet> for Vec<BulkString> {
     fn from(cmd: HGet) -> Self {
         vec![BulkString::from("HGET"), cmd.key, cmd.field]
+    }
+}
+
+impl fmt::Display for HGet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "HGET {} {}", self.key, self.field)
     }
 }
 
@@ -91,6 +111,18 @@ impl From<HDel> for Vec<BulkString> {
     }
 }
 
+impl fmt::Display for HDel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "HDEL {}", self.key)?;
+
+        for field in &self.fields {
+            write!(f, " {field}")?;
+        }
+
+        Ok(())
+    }
+}
+
 /// Returns all fields and values of the hash stored at key. In the returned value, every field name is followed by its value, so the length of the reply is twice the size of the hash.
 ///
 /// https://redis.io/docs/latest/commands/hgetall
@@ -110,6 +142,12 @@ impl HGetAll {
 impl From<HGetAll> for Vec<BulkString> {
     fn from(cmd: HGetAll) -> Self {
         vec![BulkString::from("HGETALL"), cmd.key]
+    }
+}
+
+impl fmt::Display for HGetAll {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "HGETALL {}", self.key)
     }
 }
 
@@ -135,6 +173,12 @@ impl From<HKeys> for Vec<BulkString> {
     }
 }
 
+impl fmt::Display for HKeys {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "HKEYS {}", self.key)
+    }
+}
+
 /// Returns all values in the hash stored at key.
 ///
 /// https://redis.io/docs/latest/commands/hvals
@@ -154,6 +198,12 @@ impl HVals {
 impl From<HVals> for Vec<BulkString> {
     fn from(cmd: HVals) -> Self {
         vec![BulkString::from("HVALS"), cmd.key]
+    }
+}
+
+impl fmt::Display for HVals {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "HVALS {}", self.key)
     }
 }
 
@@ -178,5 +228,11 @@ impl HExists {
 impl From<HExists> for Vec<BulkString> {
     fn from(cmd: HExists) -> Self {
         vec![BulkString::from("HEXISTS"), cmd.key, cmd.field]
+    }
+}
+
+impl fmt::Display for HExists {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "HEXISTS {} {}", self.key, self.field)
     }
 }

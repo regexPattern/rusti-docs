@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::Error;
 use redis_resp::BulkString;
 
@@ -19,6 +21,18 @@ impl From<PubSubCommand> for Vec<BulkString> {
             PubSubCommand::Publish(cmd) => cmd.into(),
             PubSubCommand::PubSubChannels(cmd) => cmd.into(),
             PubSubCommand::PubSubNumSub(cmd) => cmd.into(),
+        }
+    }
+}
+
+impl fmt::Display for PubSubCommand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PubSubCommand::Subscribe(cmd) => write!(f, "{cmd}"),
+            PubSubCommand::Unsubscribe(cmd) => write!(f, "{cmd}"),
+            PubSubCommand::Publish(cmd) => write!(f, "{cmd}"),
+            PubSubCommand::PubSubChannels(cmd) => write!(f, "{cmd}"),
+            PubSubCommand::PubSubNumSub(cmd) => write!(f, "{cmd}"),
         }
     }
 }
@@ -57,6 +71,18 @@ impl From<Subscribe> for Vec<BulkString> {
     }
 }
 
+impl fmt::Display for Subscribe {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SUBSCRIBE")?;
+
+        for c in &self.channels {
+            write!(f, " {c}")?;
+        }
+
+        Ok(())
+    }
+}
+
 /// Unsubscribes the client from the given channels, or from all of them if none is given.
 ///
 /// https://redis.io/docs/latest/commands/unsubscribe
@@ -84,6 +110,18 @@ impl From<Unsubscribe> for Vec<BulkString> {
         let mut cmd_bs = vec![BulkString::from("UNSUBSCRIBE")];
         cmd_bs.extend(cmd.channels);
         cmd_bs
+    }
+}
+
+impl fmt::Display for Unsubscribe {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "UNSUBSCRIBE")?;
+
+        for c in &self.channels {
+            write!(f, " {c}")?;
+        }
+
+        Ok(())
     }
 }
 
@@ -116,6 +154,12 @@ impl From<Publish> for PubSubCommand {
 impl From<Publish> for Vec<BulkString> {
     fn from(cmd: Publish) -> Self {
         vec![BulkString::from("PUBLISH"), cmd.channel, cmd.message]
+    }
+}
+
+impl fmt::Display for Publish {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "PUBLISH {} {}", self.channel, self.message)
     }
 }
 
@@ -153,6 +197,18 @@ impl From<PubSubChannels> for Vec<BulkString> {
     }
 }
 
+impl fmt::Display for PubSubChannels {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "PUBSUB CHANNELS")?;
+
+        if let Some(pattern) = &self.pattern {
+            write!(f, " {pattern}")?;
+        }
+
+        Ok(())
+    }
+}
+
 /// Returns the number of subscribers (exclusive of clients subscribed to patterns) for the specified channels.
 ///
 /// https://redis.io/docs/latest/commands/pubsub-numsub
@@ -180,5 +236,17 @@ impl From<PubSubNumSub> for Vec<BulkString> {
         let mut cmd_bs = vec![BulkString::from("PUBSUB"), BulkString::from("NUMSUB")];
         cmd_bs.extend(cmd.channels);
         cmd_bs
+    }
+}
+
+impl fmt::Display for PubSubNumSub {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "PUBSUB NUMSUB")?;
+
+        for c in &self.channels {
+            write!(f, " {c}")?;
+        }
+
+        Ok(())
     }
 }
