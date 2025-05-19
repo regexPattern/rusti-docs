@@ -42,9 +42,13 @@ impl Config {
             config.io_threads = io_threads.parse().map_err(Error::IoThreadsParse)?;
         }
         if let Some(logfile) = opts.get("logfile") {
-            config.logfile = Some(logfile.into());
+            let logfile = logfile.trim_matches('"');
+            if !logfile.is_empty() {
+                config.logfile = Some(logfile.into());
+            }
         }
         if let Some(appendfilename) = opts.get("appendfilename") {
+            let appendfilename = appendfilename.trim_matches('"');
             config.appendfilename = appendfilename.into();
         }
 
