@@ -101,10 +101,15 @@ impl PubSubBroker {
                             client.id
                         ))
                         .unwrap();
-                    Self::prune_client(client.id, &state, &logger_tx_clone).unwrap();
                     break;
                 }
             }
+
+            logger_tx_clone
+                .send(log::info!("cerrando la conexión con cliente {}", client.id))
+                .unwrap();
+
+            Self::prune_client(client.id, &state, &logger_tx_clone).unwrap();
         });
 
         let state = Arc::clone(&self.state);
@@ -125,12 +130,13 @@ impl PubSubBroker {
                         client.id
                     ))
                     .unwrap();
-                Self::prune_client(client.id, &state, &logger_tx_clone).unwrap();
-            } else {
-                logger_tx_clone
-                    .send(log::info!("cliente {} se ha desconectado", client.id))
-                    .unwrap();
             }
+
+            logger_tx_clone
+                .send(log::info!("cerrando la conexión con cliente {}", client.id))
+                .unwrap();
+
+            Self::prune_client(client.id, &state, &logger_tx_clone).unwrap();
         });
 
         logger_tx.send(log::info!(
