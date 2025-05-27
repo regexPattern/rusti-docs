@@ -40,11 +40,9 @@ impl StorageActor {
     pub fn start(
         append_file_path: PathBuf,
         logger_tx: Sender<LogMsg>,
-    ) -> Result<Self, InternalError> {
-        let (persistence_tx, persistence_rx): (
-            Sender<StorageCommand>,
-            mpsc::Receiver<StorageCommand>,
-        ) = mpsc::channel();
+    ) -> Result<Sender<StorageEnvelope>, InternalError> {
+        let (storage_tx, storage_rx) = mpsc::channel();
+        let (persistence_tx, persistence_rx) = mpsc::channel();
 
         let mut hash_slots = HashMap::new();
 
@@ -66,6 +64,17 @@ impl StorageActor {
 
         storage_actor.rebuild_from_persistence_file(&mut persistence_file, &logger_tx)?;
 
+        let logger_tx_clone = logger_tx.clone();
+
+        thread::spawn(move || {
+            while let Ok(envel) = storage_rx.recv() {
+                if let Err(err) = storage_actor.process(envel) {
+                    logger_tx_clone.send(log::error!("{err}")).unwrap();
+                    break;
+                }
+            }
+        });
+
         logger_tx.send(log::info!(
             "persistiendo base de datos al archivo {:?}",
             append_file_path
@@ -74,14 +83,13 @@ impl StorageActor {
         thread::spawn(move || {
             for cmd in persistence_rx {
                 let bytes = Vec::from(Command::Storage(cmd));
-
                 if let Err(err) = Self::write_to_persistence_file(&mut persistence_file, &bytes) {
                     let _ = logger_tx.send(log::error!("{err}"));
                 }
             }
         });
 
-        Ok(storage_actor)
+        Ok(storage_tx)
     }
 
     fn rebuild_from_persistence_file(

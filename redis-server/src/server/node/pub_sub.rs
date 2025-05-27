@@ -40,11 +40,24 @@ struct Client {
 }
 
 impl PubSubBroker {
-    pub fn start(logger_tx: Sender<LogMsg>) -> Self {
-        Self {
+    pub fn start(logger_tx: Sender<LogMsg>) -> Sender<PubSubEnvelope> {
+        let (tx, rx) = mpsc::channel();
+
+        let mut broker = Self {
             state: Arc::new(Mutex::new(HashMap::new())),
-            logger_tx,
-        }
+            logger_tx: logger_tx.clone(),
+        };
+
+        thread::spawn(move || {
+            while let Ok(envel) = rx.recv() {
+                if let Err(err) = broker.process(envel) {
+                    logger_tx.send(log::error!("{err}")).unwrap();
+                    break;
+                }
+            }
+        });
+
+        tx
     }
 
     pub fn process(&mut self, mut envel: PubSubEnvelope) -> Result<(), InternalError> {

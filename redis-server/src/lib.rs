@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod cli;
 mod config;
 mod server;

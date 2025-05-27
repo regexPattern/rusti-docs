@@ -7,12 +7,25 @@ use std::path::PathBuf;
 
 use error::Error;
 
+/// Opciones de configuración del servidor soportadas.
+/// https://github.com/redis/redis/blob/51ad2f8d003504a0523a050e7142a44639d8c6ce/redis.conf
+#[derive(Debug)]
 pub struct Config {
     pub bind: IpAddr,
     pub port: u16,
     pub io_threads: usize,
     pub logfile: Option<PathBuf>,
     pub appendfilename: PathBuf,
+    pub cluster_config: Option<ClusterConfig>,
+}
+
+/// Opciones de configuración del servidor como nodo de un cluster. Para configurar un nodo como parte de un cluster primer se debe setear la opción `cluster-enabled` como `yes`.
+/// https://github.com/redis/redis/blob/51ad2f8d003504a0523a050e7142a44639d8c6ce/redis.conf#L1596
+#[derive(Debug)]
+pub struct ClusterConfig {
+    pub port: u16,
+    pub config_file: PathBuf,
+    pub node_timeout: u16,
 }
 
 impl Default for Config {
@@ -20,14 +33,26 @@ impl Default for Config {
         Self {
             bind: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             port: 6379,
-            io_threads: 2,
+            io_threads: 8,
             logfile: None,
             appendfilename: PathBuf::from("./appendonly.aof"),
+            cluster_config: None,
+        }
+    }
+}
+
+impl ClusterConfig {
+    fn default(port: u16) -> Self {
+        Self {
+            port: port + 10000,
+            config_file: PathBuf::from("./nodes.conf"),
+            node_timeout: 15000,
         }
     }
 }
 
 impl Config {
+    /// Construye una configuración del servidor a partir de un archivo de configuración que sigue el formato de [redis.conf](https://github.com/redis/redis/blob/unstable/redis.conf).
     pub fn from_config_file(src: &str) -> Result<Self, Error> {
         let mut config = Self::default();
         let opts = Self::read_opts(src);
@@ -50,6 +75,27 @@ impl Config {
         if let Some(appendfilename) = opts.get("appendfilename") {
             let appendfilename = appendfilename.trim_matches('"');
             config.appendfilename = appendfilename.into();
+        }
+        if let Some(cluster_enabled) = opts.get("cluster-enabled") {
+            if cluster_enabled == "yes" {
+                let mut cluster_config = ClusterConfig::default(config.port);
+
+                if let Some(cluster_port) = opts.get("cluster-port") {
+                    cluster_config.port = cluster_port.parse().map_err(Error::PortParse)?;
+                }
+                if let Some(config_file) = opts.get("cluster-config-file") {
+                    let config_file = config_file.trim_matches('"');
+                    cluster_config.config_file = config_file.into();
+                }
+                if let Some(node_timeout) = opts.get("cluster-node-timeout") {
+                    cluster_config.node_timeout =
+                        node_timeout.parse().map_err(Error::NodeTimeoutParse)?;
+                }
+
+                config.cluster_config = Some(cluster_config);
+            } else if cluster_enabled != "no" {
+                return Err(Error::InvalidClusterEnabledValue);
+            }
         }
 
         Ok(config)

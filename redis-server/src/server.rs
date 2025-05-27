@@ -5,9 +5,10 @@ use std::{
     fs::OpenOptions,
     io::Write,
     net::{IpAddr, SocketAddr, TcpListener},
+    path::PathBuf,
     sync::{
         Arc,
-        mpsc::{self, Sender},
+        mpsc::{self, Receiver, Sender},
     },
     thread,
 };
@@ -30,10 +31,32 @@ pub struct Server {
 impl Server {
     pub fn new(config: Config) -> Result<Self, InternalError> {
         let (logger_tx, logger_rx) = mpsc::channel();
+        Self::setup_logger(config.logfile, logger_rx)?;
 
-        let node = Node::start(config.appendfilename, logger_tx.clone())?;
+        let mut node = Node::start(config.appendfilename, logger_tx.clone())?;
 
-        let mut log_file: Box<dyn Write + Send> = if let Some(path) = config.logfile {
+        if let Some(cluster_config) = config.cluster_config {
+            logger_tx.send(log::info!("iniciando nodo en modo cluster"))?;
+            node.enable_cluster_mode(config.bind, cluster_config)
+                .unwrap();
+        } else {
+            logger_tx.send(log::info!("iniciando nodo en modo standalone"))?;
+        }
+
+        Ok(Self {
+            ip: config.bind,
+            port: config.port,
+            thread_pool: ThreadPool::new(config.io_threads),
+            node: Arc::new(node),
+            logger_tx,
+        })
+    }
+
+    fn setup_logger(
+        logfile: Option<PathBuf>,
+        logger_rx: Receiver<LogMsg>,
+    ) -> Result<(), InternalError> {
+        let mut log_file: Box<dyn Write + Send> = if let Some(path) = logfile {
             Box::new(
                 OpenOptions::new()
                     .append(true)
@@ -54,13 +77,7 @@ impl Server {
             }
         });
 
-        Ok(Self {
-            ip: config.bind,
-            port: config.port,
-            thread_pool: ThreadPool::new(config.io_threads),
-            node: Arc::new(node),
-            logger_tx,
-        })
+        Ok(())
     }
 
     pub fn start(self) -> Result<(), InternalError> {

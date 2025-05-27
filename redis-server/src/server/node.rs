@@ -1,16 +1,18 @@
+mod cluster;
 mod error;
 mod pub_sub;
 mod storage;
 
 use std::io::Write;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::{
     io::{BufRead, BufReader},
     net::TcpStream,
     sync::mpsc::{self, Sender},
-    thread,
 };
 
+use cluster::ClusterActor;
 pub use error::InternalError;
 use log::LogMsg;
 use pub_sub::{PubSubBroker, PubSubEnvelope};
@@ -18,11 +20,23 @@ use redis_cmd::Command;
 use redis_resp::SimpleError;
 use storage::{StorageActor, StorageEnvelope};
 
+use crate::config::ClusterConfig;
+
 #[derive(Debug)]
 pub struct Node {
     broker_tx: Sender<PubSubEnvelope>,
     storage_tx: Sender<StorageEnvelope>,
+    cluster_tx: Option<Sender<()>>,
     logger_tx: Sender<LogMsg>,
+    //VER GOSSIP.RS PARA VER QUE ES NODEINFO
+    //mi info xd
+    // pub info: NodeInfo,
+
+    //cluster view
+    // pub conocidos: HashMap<String, NodeInfo>,
+
+    //pueden estar fallando
+    // pub sospechosos: Vec<SuspectNode>
 }
 
 impl Node {
@@ -30,39 +44,25 @@ impl Node {
         append_file_path: PathBuf,
         logger_tx: Sender<LogMsg>,
     ) -> Result<Self, InternalError> {
-        let (broker_tx, broker_rx) = mpsc::channel();
-        let (storage_tx, storage_rx) = mpsc::channel();
-
-        let mut pub_sub_broker = PubSubBroker::start(logger_tx.clone());
-        let mut storage_actor = StorageActor::start(append_file_path, logger_tx.clone())?;
-
-        let logger_tx_clone = logger_tx.clone();
-
-        thread::spawn(move || {
-            while let Ok(envel) = broker_rx.recv() {
-                if let Err(err) = pub_sub_broker.process(envel) {
-                    logger_tx_clone.send(log::error!("{err}")).unwrap();
-                    break;
-                }
-            }
-        });
-
-        let logger_tx_clone = logger_tx.clone();
-
-        thread::spawn(move || {
-            while let Ok(envel) = storage_rx.recv() {
-                if let Err(err) = storage_actor.process(envel) {
-                    logger_tx_clone.send(log::error!("{err}")).unwrap();
-                    break;
-                }
-            }
-        });
+        let broker_tx = PubSubBroker::start(logger_tx.clone());
+        let storage_tx = StorageActor::start(append_file_path, logger_tx.clone())?;
 
         Ok(Self {
             broker_tx,
             storage_tx,
+            cluster_tx: None,
             logger_tx,
         })
+    }
+
+    pub fn enable_cluster_mode(
+        &mut self,
+        host_ip: IpAddr,
+        config: ClusterConfig,
+    ) -> Result<(), ()> {
+        let cluster_tx = ClusterActor::start(host_ip, config, self.logger_tx.clone()).unwrap();
+        self.cluster_tx = Some(cluster_tx);
+        Ok(())
     }
 
     pub fn handle_client_conn(&self, client_conn: TcpStream) -> Result<(), InternalError> {
@@ -138,4 +138,56 @@ impl Node {
 
         Ok(())
     }
+
+    // pub fn handle_incomming_gossip(&self, client_conn: TcpStream) -> Result<(), InternalError> {
+
+    //     //READ GOSSIP MSG IMPLEMENTAR READ WRITE FROM UNA VEZ DEFINIDO EL ENVELOPE Y Q TIENE
+
+    //     // self.update_cluster_view(client_conn, cmd)?;
+    // }
+
+    // fn update_cluster_view(
+    //     &self,
+    //     mut gossip_envelope: ,
+
+    // ) -> Result<(), > {
+
+    //     // UPDATE CLUSTER VIEW CON NODOS CONOCIDOS
+    //     //ESTO VNDRIA A SER LA CLUSTER VIEW
+
+    //     // UPDATE CLUSTER VIEW CON NODOS SOSPECHOSOS
+    //     //nodo que podrian estar fallanndo
+
+    // }
+
+    // pub fn hacer_gossip(
+    //     yo: &NodeInfo,
+    //     conocidos: &HashMap<String, NodeInfo>,
+    //     sospechosos: Vec<SuspectNode>,
+    // ) -> Result<(), Box<dyn std::error::Error>> {
+
+    //     // Elegir un nodo al azar distinto a vos y que esté vivo
+    //     //node <node_info?
+
+    //     // Armar mensaje leyendo mi clustyer info
+    //     // let msg = GossipMessage {
+    //     //     from: yo.clone(),
+    //     //     known_nodes: conocidos.values().cloned().collect(),
+    //     //     suspect_nodes: sospechosos,
+    //     //     timestamp: Utc::now().timestamp() as u64,
+    //     // };
+
+    //     //SERIALIZAR GOSSIP MESSAGE
+    //     //let gossip_env_ser = goosip_en.to_bytes()
+
+    //     // MANDAMOS EL GOSSIP
+    //     // let addr = format!("{}:{}", nodo.ip, nodo.gossip_port);
+    //     // println!("Conectando a nodo {} en {}", nodo.id, addr);
+
+    //     // let mut stream = TcpStream::connect(addr)?;
+    //     // stream.write_all(&gossip_env_ser)?;
+    //     // println!("Mensaje gossip enviado a {}", nodo.id);
+
+    //     Ok(())
+    // }
 }
