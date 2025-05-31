@@ -6,24 +6,19 @@ use super::{StorageActor, data_type::RedisDataType, error::OperationError};
 
 impl StorageActor {
     // https://redis.io/docs/latest/commands/hset
-    pub(super) fn hset(
-        &mut self,
-        key: BulkString,
-        field_value_pairs: Vec<BulkString>,
-    ) -> Result<Vec<u8>, u16> {
-        let slot = self.get_hash_slot_mut(&key)?;
-
+    pub(super) fn hset(&mut self, key: BulkString, field_value_pairs: Vec<BulkString>) -> Vec<u8> {
         if field_value_pairs.is_empty() || field_value_pairs.len() % 2 != 0 {
-            return Ok(SimpleError::from(OperationError::WrongNumberOfArgs).into());
+            return SimpleError::from(OperationError::WrongNumberOfArgs).into();
         }
 
-        let hash = slot
+        let hash = self
+            .data
             .entry(key)
             .or_insert(RedisDataType::Hash(HashMap::new()));
 
         let hash = match hash {
             RedisDataType::Hash(hash) => hash,
-            _ => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
+            _ => return SimpleError::from(OperationError::WrongDataType).into(),
         };
 
         let mut added = 0;
@@ -34,33 +29,29 @@ impl StorageActor {
             added += 1;
         }
 
-        Ok(Integer::from(added).into())
+        Integer::from(added).into()
     }
 
     // https://redis.io/docs/latest/commands/hget
-    pub(super) fn hget(&self, key: &BulkString, field: &BulkString) -> Result<Vec<u8>, u16> {
-        let slot = self.get_hash_slot(key)?;
-
-        let hash = match slot.get(key) {
+    pub(super) fn hget(&self, key: &BulkString, field: &BulkString) -> Vec<u8> {
+        let hash = match self.data.get(key) {
             Some(RedisDataType::Hash(hash)) => hash,
-            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
-            None => return Ok(RespDataType::Null.into()),
+            Some(_) => return SimpleError::from(OperationError::WrongDataType).into(),
+            None => return RespDataType::Null.into(),
         };
 
-        Ok(match hash.get(field) {
+        match hash.get(field) {
             Some(value) => value.into(),
             _ => RespDataType::Null.into(),
-        })
+        }
     }
 
     // https://redis.io/docs/latest/commands/hdel
-    pub(super) fn hdel(&mut self, key: &BulkString, fields: &[BulkString]) -> Result<Vec<u8>, u16> {
-        let slot = self.get_hash_slot_mut(key)?;
-
-        let hash = match slot.get_mut(key) {
+    pub(super) fn hdel(&mut self, key: &BulkString, fields: &[BulkString]) -> Vec<u8> {
+        let hash = match self.data.get_mut(key) {
             Some(RedisDataType::Hash(hash)) => hash,
-            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
-            None => return Ok(RespDataType::Null.into()),
+            Some(_) => return SimpleError::from(OperationError::WrongDataType).into(),
+            None => return RespDataType::Null.into(),
         };
 
         let mut deleted = 0;
@@ -71,63 +62,58 @@ impl StorageActor {
             }
         }
 
-        Ok(Integer::from(deleted).into())
+        Integer::from(deleted).into()
     }
 
     // https://redis.io/docs/latest/commands/hgetall
-    pub(super) fn hgetall(&self, key: &BulkString) -> Result<Vec<u8>, u16> {
-        let slot = self.get_hash_slot(key)?;
-
-        let hash = match slot.get(key) {
+    pub(super) fn hgetall(&self, key: &BulkString) -> Vec<u8> {
+        let hash = match self.data.get(key) {
             Some(RedisDataType::Hash(hash)) => hash,
-            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
-            None => return Ok(RespDataType::Null.into()),
+            Some(_) => return SimpleError::from(OperationError::WrongDataType).into(),
+            None => return RespDataType::Null.into(),
         };
 
-        Ok(Map::to_resp_vec(hash))
+        Map::to_resp_vec(hash)
     }
 
     // https://redis.io/docs/latest/commands/hkeys
-    pub(super) fn hkeys(&self, key: &BulkString) -> Result<Vec<u8>, u16> {
-        let slot = self.get_hash_slot(key)?;
-
-        let hash = match slot.get(key) {
+    pub(super) fn hkeys(&self, key: &BulkString) -> Vec<u8> {
+        let hash = match self.data.get(key) {
             Some(RedisDataType::Hash(hash)) => hash,
-            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
-            None => return Ok(RespDataType::Null.into()),
+            Some(_) => return SimpleError::from(OperationError::WrongDataType).into(),
+            None => return RespDataType::Null.into(),
         };
 
         let keys: Vec<RespDataType> = hash.keys().cloned().map(RespDataType::from).collect();
-        Ok(redis_resp::Array::from(keys).into())
+
+        redis_resp::Array::from(keys).into()
     }
 
     // https://redis.io/docs/latest/commands/hvals
-    pub(super) fn hvals(&self, key: &BulkString) -> Result<Vec<u8>, u16> {
-        let slot = self.get_hash_slot(key)?;
-
-        let hash = match slot.get(key) {
+    pub(super) fn hvals(&self, key: &BulkString) -> Vec<u8> {
+        let hash = match self.data.get(key) {
             Some(RedisDataType::Hash(hash)) => hash,
-            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
-            None => return Ok(RespDataType::Null.into()),
+            Some(_) => return SimpleError::from(OperationError::WrongDataType).into(),
+            None => return RespDataType::Null.into(),
         };
 
         let values: Vec<RespDataType> = hash.values().cloned().map(RespDataType::from).collect();
-        Ok(redis_resp::Array::from(values).into())
+
+        redis_resp::Array::from(values).into()
     }
 
     // https://redis.io/docs/latest/commands/hexists
-    pub(super) fn hexists(&self, key: &BulkString, field: &BulkString) -> Result<Vec<u8>, u16> {
-        let slot = self.get_hash_slot(key)?;
-
-        let hash = match slot.get(key) {
+    pub(super) fn hexists(&self, key: &BulkString, field: &BulkString) -> Vec<u8> {
+        let hash = match self.data.get(key) {
             Some(RedisDataType::Hash(hash)) => hash,
-            Some(_) => return Ok(SimpleError::from(OperationError::WrongDataType).into()),
-            None => return Ok(Integer::from(0).into()),
+            Some(_) => return SimpleError::from(OperationError::WrongDataType).into(),
+            None => return Integer::from(0).into(),
         };
+
         if hash.contains_key(field) {
-            Ok(Integer::from(1).into())
+            Integer::from(1).into()
         } else {
-            Ok(Integer::from(0).into())
+            Integer::from(0).into()
         }
     }
 }

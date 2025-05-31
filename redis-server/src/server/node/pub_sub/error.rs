@@ -6,7 +6,7 @@ use std::{
 use log::LogMsg;
 use redis_resp::SimpleError;
 
-use super::State;
+use super::SubsRegister;
 
 /// Errores que pueden ocurrir en el funcionamiento interno del pub/sub broker, no relacionados a las operaciones de pub/sub realizadas por los clientes.
 #[derive(Debug)]
@@ -44,8 +44,8 @@ impl From<SendError<Vec<u8>>> for InternalError {
     }
 }
 
-impl From<PoisonError<MutexGuard<'_, State>>> for InternalError {
-    fn from(_: PoisonError<MutexGuard<'_, State>>) -> Self {
+impl From<PoisonError<MutexGuard<'_, SubsRegister>>> for InternalError {
+    fn from(_: PoisonError<MutexGuard<'_, SubsRegister>>) -> Self {
         Self::PoisonState
     }
 }

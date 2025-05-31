@@ -3,16 +3,15 @@ mod error;
 mod pub_sub;
 mod storage;
 
-use std::io::Write;
-use std::net::IpAddr;
+use std::io::{BufReader, Write};
 use std::path::PathBuf;
 use std::{
-    io::{BufRead, BufReader},
+    io::BufRead,
     net::TcpStream,
     sync::mpsc::{self, Sender},
 };
 
-use cluster::ClusterActor;
+use cluster::{ClusterActor, ClusterEnvelope};
 pub use error::InternalError;
 use log::LogMsg;
 use pub_sub::{PubSubBroker, PubSubEnvelope};
@@ -26,7 +25,7 @@ use crate::config::ClusterConfig;
 pub struct Node {
     broker_tx: Sender<PubSubEnvelope>,
     storage_tx: Sender<StorageEnvelope>,
-    cluster_tx: Option<Sender<()>>,
+    cluster_tx: Option<Sender<ClusterEnvelope>>,
     logger_tx: Sender<LogMsg>,
     //VER GOSSIP.RS PARA VER QUE ES NODEINFO
     //mi info xd
@@ -55,18 +54,14 @@ impl Node {
         })
     }
 
-    pub fn enable_cluster_mode(
-        &mut self,
-        host_ip: IpAddr,
-        config: ClusterConfig,
-    ) -> Result<(), ()> {
-        let cluster_tx = ClusterActor::start(host_ip, config, self.logger_tx.clone()).unwrap();
+    pub fn enable_cluster_mode(&mut self, config: ClusterConfig) -> Result<(), ()> {
+        let cluster_tx = ClusterActor::start(config, self.logger_tx.clone()).unwrap();
         self.cluster_tx = Some(cluster_tx);
         Ok(())
     }
 
-    pub fn handle_client_conn(&self, client_conn: TcpStream) -> Result<(), InternalError> {
-        let mut reader = BufReader::new(client_conn);
+    pub fn handle_client(&self, mut client: TcpStream) -> Result<(), InternalError> {
+        let mut reader = BufReader::new(&mut client);
 
         let bytes = match reader.fill_buf() {
             Ok(bytes) if !bytes.is_empty() => bytes,
@@ -84,20 +79,18 @@ impl Node {
 
         let cmd = Command::try_from(bytes);
 
-        let length = bytes.len();
-        reader.consume(length);
-
-        let mut client_conn = reader.into_inner();
-
         match cmd {
             Ok(cmd) => {
                 self.logger_tx
                     .send(log::info!("procesando comando {cmd}"))?;
-                self.execute_command(client_conn, cmd)?;
+                self.execute_command(client, cmd)?;
                 Ok(())
             }
             Err(err) => {
-                client_conn
+                self.logger_tx
+                    .send(log::info!("comando recibido es inválido {err}"))?;
+
+                client
                     .write_all(&Vec::from(SimpleError::from(err)))
                     .map_err(InternalError::StreamWrite)?;
 
@@ -106,34 +99,38 @@ impl Node {
         }
     }
 
-    fn execute_command(
-        &self,
-        mut client_conn: TcpStream,
-        cmd: Command,
-    ) -> Result<(), InternalError> {
+    fn execute_command(&self, mut client: TcpStream, cmd: Command) -> Result<(), InternalError> {
         let (reply_tx, reply_rx) = mpsc::channel();
 
         match cmd {
             Command::Storage(cmd) => {
-                self.storage_tx
-                    .send(storage::StorageEnvelope { cmd, reply_tx })?;
+                self.storage_tx.send(StorageEnvelope { cmd, reply_tx })?;
 
-                while let Ok(reply) = reply_rx.recv() {
-                    let reply = match reply {
-                        Ok(reply) => reply,
-                        Err(_hash) => todo!("traer valor del nodo del cluster que tiene el hash"),
-                    };
-
-                    client_conn
+                if let Ok(reply) = reply_rx.recv() {
+                    client
                         .write_all(&reply)
                         .map_err(InternalError::StreamWrite)?;
                 }
             }
             Command::PubSub(cmd) => {
-                self.broker_tx
-                    .send(pub_sub::PubSubEnvelope { client_conn, cmd })?;
+                self.broker_tx.send(PubSubEnvelope { client, cmd })?;
             }
-            Command::Cluster(_cmd) => todo!("implementar la ejecucion de comandos del cluster"),
+            Command::Cluster(cmd) => {
+                if let Some(cluster_tx) = &self.cluster_tx {
+                    cluster_tx.send(ClusterEnvelope { cmd, reply_tx })?;
+                    if let Ok(reply) = reply_rx.recv() {
+                        client
+                            .write_all(&reply)
+                            .map_err(InternalError::StreamWrite)?;
+                    }
+                } else {
+                    self.logger_tx
+                        .send(log::warn!(
+                            "recibido comando de cluster sin tener modo cluster activado"
+                        ))
+                        .unwrap();
+                }
+            }
         };
 
         Ok(())

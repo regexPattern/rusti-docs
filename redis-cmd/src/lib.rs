@@ -83,6 +83,7 @@ impl TryFrom<Array> for Command {
                 let sub_cmd_bs = args.next().ok_or(Error::MissingCommand)?;
                 let sub_cmd_str = String::from(sub_cmd_bs).to_ascii_uppercase();
                 match sub_cmd_str.as_str() {
+                    "MEET" => Self::Cluster(Meet::from_args(args)?.into()),
                     "FAILOVER" => Self::Cluster(FailOver::from_args(args)?.into()),
                     "INFO" => Self::Cluster(Info::from_args(args)?.into()),
                     "NODES" => Self::Cluster(Nodes::from_args(args)?.into()),
@@ -116,7 +117,7 @@ impl From<Command> for Vec<u8> {
         let cmd_bs: Vec<_> = match cmd {
             Command::Storage(cmd) => cmd.into(),
             Command::PubSub(cmd) => cmd.into(),
-            Command::Cluster(cmd) => todo!(),
+            Command::Cluster(cmd) => todo!("serializar comandos de cluster para los clientes"),
         };
 
         let cmd_dt: Vec<_> = cmd_bs.into_iter().map(RespDataType::from).collect();

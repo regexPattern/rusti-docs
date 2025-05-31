@@ -6,6 +6,7 @@ use redis_resp::BulkString;
 /// Comandos de cluster.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClusterCommand {
+    Meet(Meet),
     FailOver(FailOver),
     Info(Info),
     Nodes(Nodes),
@@ -19,13 +20,68 @@ impl From<ClusterCommand> for Vec<BulkString> {
             ClusterCommand::Info(cmd) => todo!(),
             ClusterCommand::Nodes(cmd) => todo!(),
             ClusterCommand::Shards(cmd) => todo!(),
+            ClusterCommand::Meet(cmd) => cmd.into(),
         }
     }
 }
 
 impl fmt::Display for ClusterCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        match self {
+            ClusterCommand::Meet(cmd) => write!(f, "{cmd}"),
+            ClusterCommand::FailOver(cmd) => todo!(),
+            ClusterCommand::Info(cmd) => todo!(),
+            ClusterCommand::Nodes(cmd) => todo!(),
+            ClusterCommand::Shards(cmd) => todo!(),
+        }
+    }
+}
+
+/// Connect different Redis nodes with cluster support enabled, into a working cluster.
+///
+/// https://redis.io/docs/latest/commands/cluster-meet
+#[derive(Clone, Debug, PartialEq)]
+pub struct Meet {
+    pub ip: BulkString,
+    pub port: BulkString,
+    pub cluster_port: Option<BulkString>,
+}
+
+impl Meet {
+    pub fn from_args(mut args: impl Iterator<Item = BulkString>) -> Result<Self, Error> {
+        Ok(Self {
+            ip: args.next().ok_or(Error::MissingArgument)?,
+            port: args.next().ok_or(Error::MissingArgument)?,
+            cluster_port: args.next(),
+        })
+    }
+}
+
+impl From<Meet> for Vec<BulkString> {
+    fn from(cmd: Meet) -> Self {
+        let mut cmd_bs = vec![BulkString::from("MEET"), cmd.ip, cmd.port];
+        if let Some(port) = cmd.cluster_port {
+            cmd_bs.push(port);
+        }
+        cmd_bs
+    }
+}
+
+impl From<Meet> for ClusterCommand {
+    fn from(cmd: Meet) -> Self {
+        ClusterCommand::Meet(cmd)
+    }
+}
+
+impl fmt::Display for Meet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CLUSTER MEET {} {}", self.ip, self.port)?;
+
+        if let Some(port) = &self.cluster_port {
+            write!(f, " {}", port)?;
+        }
+
+        Ok(())
     }
 }
 

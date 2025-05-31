@@ -1,7 +1,6 @@
 mod error;
 
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 
@@ -11,18 +10,29 @@ use error::Error;
 /// https://github.com/redis/redis/blob/51ad2f8d003504a0523a050e7142a44639d8c6ce/redis.conf
 #[derive(Debug)]
 pub struct Config {
-    pub bind: IpAddr,
+    pub bind: Ipv4Addr,
     pub port: u16,
     pub io_threads: usize,
     pub logfile: Option<PathBuf>,
     pub appendfilename: PathBuf,
-    pub cluster_config: Option<ClusterConfig>,
+    pub tls: Option<TlsConfig>,
+    pub cluster: Option<ClusterConfig>,
 }
 
-/// Opciones de configuración del servidor como nodo de un cluster. Para configurar un nodo como parte de un cluster primer se debe setear la opción `cluster-enabled` como `yes`.
+/// Opciones específicas para soporte de conexiones TLS.
+/// https://github.com/redis/redis/blob/51ad2f8d003504a0523a050e7142a44639d8c6ce/redis.conf#L189
+#[derive(Debug)]
+pub struct TlsConfig {
+    pub cert_file: PathBuf,
+    pub key_file: PathBuf,
+    pub ca_cert_file: PathBuf,
+}
+
+/// Opciones específicas para soporte para modo cluster.
 /// https://github.com/redis/redis/blob/51ad2f8d003504a0523a050e7142a44639d8c6ce/redis.conf#L1596
 #[derive(Debug)]
 pub struct ClusterConfig {
+    pub bind: Ipv4Addr,
     pub port: u16,
     pub config_file: PathBuf,
     pub node_timeout: u16,
@@ -31,19 +41,21 @@ pub struct ClusterConfig {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            bind: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            bind: Ipv4Addr::new(127, 0, 0, 1),
             port: 6379,
             io_threads: 8,
             logfile: None,
             appendfilename: PathBuf::from("./appendonly.aof"),
-            cluster_config: None,
+            tls: None,
+            cluster: None,
         }
     }
 }
 
 impl ClusterConfig {
-    fn default(port: u16) -> Self {
+    fn default(bind: Ipv4Addr, port: u16) -> Self {
         Self {
+            bind,
             port: port + 10000,
             config_file: PathBuf::from("./nodes.conf"),
             node_timeout: 15000,
@@ -78,7 +90,7 @@ impl Config {
         }
         if let Some(cluster_enabled) = opts.get("cluster-enabled") {
             if cluster_enabled == "yes" {
-                let mut cluster_config = ClusterConfig::default(config.port);
+                let mut cluster_config = ClusterConfig::default(config.bind, config.port);
 
                 if let Some(cluster_port) = opts.get("cluster-port") {
                     cluster_config.port = cluster_port.parse().map_err(Error::PortParse)?;
@@ -92,7 +104,7 @@ impl Config {
                         node_timeout.parse().map_err(Error::NodeTimeoutParse)?;
                 }
 
-                config.cluster_config = Some(cluster_config);
+                config.cluster = Some(cluster_config);
             } else if cluster_enabled != "no" {
                 return Err(Error::InvalidClusterEnabledValue);
             }

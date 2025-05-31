@@ -4,7 +4,7 @@ mod node;
 use std::{
     fs::OpenOptions,
     io::Write,
-    net::{IpAddr, SocketAddr, TcpListener},
+    net::{Ipv4Addr, SocketAddr, TcpListener},
     path::PathBuf,
     sync::{
         Arc,
@@ -21,7 +21,7 @@ use crate::{config::Config, thread_pool::ThreadPool};
 
 #[derive(Debug)]
 pub struct Server {
-    ip: IpAddr,
+    ip: Ipv4Addr,
     port: u16,
     thread_pool: ThreadPool,
     node: Arc<Node>,
@@ -35,12 +35,11 @@ impl Server {
 
         let mut node = Node::start(config.appendfilename, logger_tx.clone())?;
 
-        if let Some(cluster_config) = config.cluster_config {
-            logger_tx.send(log::info!("iniciando nodo en modo cluster"))?;
-            node.enable_cluster_mode(config.bind, cluster_config)
-                .unwrap();
+        if let Some(cluster_config) = config.cluster {
+            logger_tx.send(log::info!("iniciando servidor en modo cluster"))?;
+            node.enable_cluster_mode(cluster_config).unwrap();
         } else {
-            logger_tx.send(log::info!("iniciando nodo en modo standalone"))?;
+            logger_tx.send(log::info!("iniciando servidor en modo standalone"))?;
         }
 
         Ok(Self {
@@ -81,14 +80,14 @@ impl Server {
     }
 
     pub fn start(self) -> Result<(), InternalError> {
-        let addr = SocketAddr::new(self.ip, self.port);
+        let addr = SocketAddr::new(self.ip.into(), self.port);
         let listener = TcpListener::bind(addr).map_err(InternalError::AddrBind)?;
 
         self.logger_tx
             .send(log::info!("servidor escuchando en {:?}", addr))?;
 
-        for conn in listener.incoming() {
-            let conn = match conn {
+        for stream in listener.incoming() {
+            let stream = match stream {
                 Ok(conn) => conn,
                 Err(err) => {
                     self.logger_tx.send(log::error!("{err}"))?;
@@ -100,7 +99,7 @@ impl Server {
             let node = Arc::clone(&self.node);
 
             self.thread_pool.execute(move || {
-                if let Err(err) = node.handle_client_conn(conn) {
+                if let Err(err) = node.handle_client(stream) {
                     logger_tx.send(log::error!("{err}")).unwrap();
                 }
             })?;

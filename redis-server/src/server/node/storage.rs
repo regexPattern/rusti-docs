@@ -26,14 +26,14 @@ const CLUSTER_HASH_SLOTS: u16 = 16384;
 
 #[derive(Debug)]
 pub struct StorageActor {
-    hash_slots: HashMap<u16, HashMap<BulkString, RedisDataType>>,
+    data: HashMap<BulkString, RedisDataType>,
     persistence_tx: Sender<StorageCommand>,
 }
 
 #[derive(Debug)]
 pub struct StorageEnvelope {
     pub cmd: StorageCommand,
-    pub reply_tx: Sender<Result<Vec<u8>, u16>>,
+    pub reply_tx: Sender<Vec<u8>>,
 }
 
 impl StorageActor {
@@ -44,12 +44,6 @@ impl StorageActor {
         let (storage_tx, storage_rx) = mpsc::channel();
         let (persistence_tx, persistence_rx) = mpsc::channel();
 
-        let mut hash_slots = HashMap::new();
-
-        for i in 0..CLUSTER_HASH_SLOTS {
-            hash_slots.insert(i, HashMap::new());
-        }
-
         let mut persistence_file = OpenOptions::new()
             .read(true)
             .append(true)
@@ -58,7 +52,7 @@ impl StorageActor {
             .map_err(InternalError::PersistenceFileOpen)?;
 
         let mut storage_actor = Self {
-            hash_slots,
+            data: HashMap::new(),
             persistence_tx,
         };
 
@@ -112,13 +106,7 @@ impl StorageActor {
             let cmd = Command::try_from(result.0).map_err(InternalError::PersistenceFileCommand)?;
 
             if let Command::Storage(cmd) = cmd {
-                // TODO: cuando tengamos el cluster vamos a tener que cambiar esto, porque
-                // actualmente el apply solo retorna error cuando el hash slot al que se intenta
-                // aplicar la modificación de la DB no pertenece al shard. Sin embargo, ya en un
-                // cluster, realmente no deberíamos hacer que cada nodo del cluster se encargue de
-                // esto, sino que más bien sea sincrónico entre los diferentes nodos.
-
-                self.apply(cmd).unwrap();
+                self.apply(cmd);
             }
 
             remaining_bytes = result.1;
@@ -145,16 +133,13 @@ impl StorageActor {
     pub fn process(&mut self, envel: StorageEnvelope) -> Result<(), InternalError> {
         let reply = self.apply(envel.cmd.clone());
 
-        if reply.is_ok() {
-            self.persistence_tx.send(envel.cmd).unwrap();
-        }
-
+        self.persistence_tx.send(envel.cmd).unwrap();
         envel.reply_tx.send(reply).unwrap();
 
         Ok(())
     }
 
-    fn apply(&mut self, cmd: StorageCommand) -> Result<Vec<u8>, u16> {
+    fn apply(&mut self, cmd: StorageCommand) -> Vec<u8> {
         match cmd {
             StorageCommand::Del(Del { key, keys }) => self.del(key, keys),
 
@@ -200,18 +185,5 @@ impl StorageActor {
         let key: &str = key.into();
         let hash = State::<XMODEM>::calculate(key.as_bytes());
         hash % CLUSTER_HASH_SLOTS
-    }
-
-    fn get_hash_slot(&self, key: &BulkString) -> Result<&HashMap<BulkString, RedisDataType>, u16> {
-        let hash = Self::hash_key(key);
-        self.hash_slots.get(&hash).ok_or(hash)
-    }
-
-    fn get_hash_slot_mut(
-        &mut self,
-        key: &BulkString,
-    ) -> Result<&mut HashMap<BulkString, RedisDataType>, u16> {
-        let hash = Self::hash_key(key);
-        self.hash_slots.get_mut(&hash).ok_or(hash)
     }
 }

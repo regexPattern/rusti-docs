@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, num::ParseIntError, str::FromStr};
 
 use crate::Error;
 
@@ -20,6 +20,17 @@ impl BulkString {
 
     pub fn contains(&self, pattern: &Self) -> bool {
         self.0.contains(&pattern.0)
+    }
+
+    pub fn push_bs(&mut self, bs: &Self) {
+        self.0.push_str(&bs.0);
+    }
+
+    pub fn parse<T>(&self) -> Result<T, ParseIntError>
+    where
+        T: FromStr<Err = ParseIntError>,
+    {
+        self.0.parse()
     }
 }
 

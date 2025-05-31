@@ -3,6 +3,7 @@ use std::{fmt, io, sync::mpsc::SendError};
 use log::LogMsg;
 
 use super::{
+    cluster::ClusterEnvelope,
     pub_sub::{self, PubSubEnvelope},
     storage::{self, StorageEnvelope},
 };
@@ -10,6 +11,7 @@ use super::{
 #[derive(Debug)]
 pub enum InternalError {
     LogSend(SendError<LogMsg>),
+    ClusterActorSend(SendError<ClusterEnvelope>),
     PubSubBroker(pub_sub::InternalError),
     PubSubBrokerSend(SendError<PubSubEnvelope>),
     StorageActor(storage::InternalError),
@@ -23,7 +25,11 @@ impl std::error::Error for InternalError {}
 impl fmt::Display for InternalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            InternalError::LogSend(err) => write!(f, "{err}"),
+            InternalError::LogSend(err) => write!(
+                f,
+                "error enviando envelope por el canal del cluster actor: {err}"
+            ),
+            InternalError::ClusterActorSend(err) => write!(f, "{err}"),
             InternalError::PubSubBroker(err) => write!(f, "{err}"),
             InternalError::PubSubBrokerSend(err) => write!(
                 f,
@@ -47,6 +53,12 @@ impl fmt::Display for InternalError {
 impl From<SendError<LogMsg>> for InternalError {
     fn from(err: SendError<LogMsg>) -> Self {
         Self::LogSend(err)
+    }
+}
+
+impl From<SendError<ClusterEnvelope>> for InternalError {
+    fn from(err: SendError<ClusterEnvelope>) -> Self {
+        Self::ClusterActorSend(err)
     }
 }
 
