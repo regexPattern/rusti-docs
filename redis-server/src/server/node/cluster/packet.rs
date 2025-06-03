@@ -2,12 +2,9 @@ mod data;
 mod error;
 mod header;
 
-use data::PacketData;
+pub use data::{GossipData, GossipDataKind, PacketData};
 use error::Error;
-use header::PacketHeader;
-
-const HEADER_DATA_SEP: u8 = b'@';
-pub const TERMINATOR: u8 = b'\n';
+pub use header::{HEADER_BYTES, PacketHeader};
 
 #[derive(Debug)]
 pub struct Packet {
@@ -15,14 +12,12 @@ pub struct Packet {
     pub data: PacketData,
 }
 
-impl TryFrom<Vec<u8>> for Packet {
+impl TryFrom<&[u8]> for Packet {
     type Error = Error;
 
-    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
-        let mut bytes = bytes.split(|b| *b == b'@');
-
-        let header = PacketHeader::try_from(bytes.next().unwrap()).unwrap();
-        let data = PacketData::try_from(bytes.next().unwrap()).unwrap();
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        let header = PacketHeader::try_from(&bytes[0..HEADER_BYTES]).unwrap();
+        let data = PacketData::try_from(&bytes[HEADER_BYTES..]).unwrap();
 
         Ok(Self { header, data })
     }
@@ -31,14 +26,7 @@ impl TryFrom<Vec<u8>> for Packet {
 impl From<Packet> for Vec<u8> {
     fn from(packet: Packet) -> Self {
         let mut bytes = Vec::from(packet.header);
-        let data = Vec::from(packet.data);
-
-        bytes.reserve_exact(1 + data.len() + 1);
-
-        bytes.push(HEADER_DATA_SEP);
-        bytes.extend(data);
-        bytes.push(TERMINATOR);
-
+        bytes.extend(Vec::from(packet.data));
         bytes
     }
 }

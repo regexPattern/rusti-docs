@@ -6,9 +6,9 @@ use redis_resp::BulkString;
 /// Comandos de cluster.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClusterCommand {
-    Meet(Meet),
     FailOver(FailOver),
     Info(Info),
+    Meet(Meet),
     Nodes(Nodes),
     Shards(Shards),
 }
@@ -18,9 +18,9 @@ impl From<ClusterCommand> for Vec<BulkString> {
         match cmd {
             ClusterCommand::FailOver(cmd) => todo!(),
             ClusterCommand::Info(cmd) => todo!(),
-            ClusterCommand::Nodes(cmd) => todo!(),
-            ClusterCommand::Shards(cmd) => todo!(),
             ClusterCommand::Meet(cmd) => cmd.into(),
+            ClusterCommand::Nodes(cmd) => cmd.into(),
+            ClusterCommand::Shards(cmd) => todo!(),
         }
     }
 }
@@ -28,10 +28,10 @@ impl From<ClusterCommand> for Vec<BulkString> {
 impl fmt::Display for ClusterCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ClusterCommand::Meet(cmd) => write!(f, "{cmd}"),
             ClusterCommand::FailOver(cmd) => todo!(),
             ClusterCommand::Info(cmd) => todo!(),
-            ClusterCommand::Nodes(cmd) => todo!(),
+            ClusterCommand::Meet(cmd) => write!(f, "{cmd}"),
+            ClusterCommand::Nodes(cmd) => write!(f, "{cmd}"),
             ClusterCommand::Shards(cmd) => todo!(),
         }
     }
@@ -59,7 +59,7 @@ impl Meet {
 
 impl From<Meet> for Vec<BulkString> {
     fn from(cmd: Meet) -> Self {
-        let mut cmd_bs = vec![BulkString::from("MEET"), cmd.ip, cmd.port];
+        let mut cmd_bs = vec!["MEET".into(), cmd.ip, cmd.port];
         if let Some(port) = cmd.cluster_port {
             cmd_bs.push(port);
         }
@@ -129,15 +129,28 @@ impl From<Info> for ClusterCommand {
 /// https://redis.io/docs/latest/commands/cluster-nodes
 #[derive(Clone, Debug, PartialEq)]
 pub struct Nodes;
+
 impl Nodes {
     pub fn from_args(_args: impl Iterator<Item = BulkString>) -> Result<Self, Error> {
         Ok(Nodes)
     }
 }
 
+impl From<Nodes> for Vec<BulkString> {
+    fn from(cmd: Nodes) -> Self {
+        vec!["NODES".into()]
+    }
+}
+
 impl From<Nodes> for ClusterCommand {
     fn from(cmd: Nodes) -> Self {
         ClusterCommand::Nodes(cmd)
+    }
+}
+
+impl fmt::Display for Nodes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CLUSTER NODES")
     }
 }
 

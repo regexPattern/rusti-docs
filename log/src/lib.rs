@@ -14,10 +14,11 @@ pub struct LogMsg {
 
 #[derive(Debug, PartialEq)]
 pub enum LogLevel {
-    Info,
-    Warn,
+    ClusterDebug,
     Debug,
     Error,
+    Info,
+    Warn,
 }
 
 pub type Error = SendError<LogMsg>;
@@ -30,7 +31,7 @@ impl fmt::Display for LogMsg {
                 .unwrap_or(false)
         });
 
-        if self.level == LogLevel::Debug && !debug_on {
+        if (self.level == LogLevel::Debug || self.level == LogLevel::ClusterDebug) && !debug_on {
             return Ok(());
         }
 
@@ -38,14 +39,29 @@ impl fmt::Display for LogMsg {
         let ts = now.format("%d-%m-%Y %H:%M:%S");
 
         let prefix = match self.level {
-            LogLevel::Info => concat!("\x1b[92m", "INFO", "\x1b[0m"),
-            LogLevel::Warn => concat!("\x1b[93m", "WARN", "\x1b[0m"),
+            LogLevel::ClusterDebug => concat!("\x1b[96m", "CLUSTER", "\x1b[0m"),
             LogLevel::Debug => concat!("\x1b[94m", "DEBUG", "\x1b[0m"),
             LogLevel::Error => concat!("\x1b[91m", "ERROR", "\x1b[0m"),
+            LogLevel::Info => concat!("\x1b[92m", "INFO", "\x1b[0m"),
+            LogLevel::Warn => concat!("\x1b[93m", "WARN", "\x1b[0m"),
         };
 
         writeln!(f, "{ts} {prefix} {}", self.msg)
     }
+}
+
+#[macro_export]
+macro_rules! cluster_debug {
+    ($($arg:tt)*) => ({
+        $crate::LogMsg { msg: format!($($arg)*), level: $crate::LogLevel::ClusterDebug }
+    });
+}
+
+#[macro_export]
+macro_rules! debug {
+    ($($arg:tt)*) => ({
+        $crate::LogMsg { msg: format!($($arg)*), level: $crate::LogLevel::Debug }
+    });
 }
 
 #[macro_export]
@@ -59,13 +75,6 @@ macro_rules! info {
 macro_rules! warn {
     ($($arg:tt)*) => ({
         $crate::LogMsg { msg: format!($($arg)*), level: $crate::LogLevel::Warn }
-    });
-}
-
-#[macro_export]
-macro_rules! debug {
-    ($($arg:tt)*) => ({
-        $crate::LogMsg { msg: format!($($arg)*), level: $crate::LogLevel::Debug }
     });
 }
 

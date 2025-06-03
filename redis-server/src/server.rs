@@ -84,7 +84,7 @@ impl Server {
         let listener = TcpListener::bind(addr).map_err(InternalError::AddrBind)?;
 
         self.logger_tx
-            .send(log::info!("servidor escuchando en {:?}", addr))?;
+            .send(log::info!("servidor escuchando clientes en {:?}", addr))?;
 
         for stream in listener.incoming() {
             let stream = match stream {

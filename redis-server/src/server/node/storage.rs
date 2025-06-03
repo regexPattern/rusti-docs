@@ -181,7 +181,7 @@ impl StorageActor {
         }
     }
 
-    fn hash_key(key: &BulkString) -> u16 {
+    fn _hash_key(key: &BulkString) -> u16 {
         let key: &str = key.into();
         let hash = State::<XMODEM>::calculate(key.as_bytes());
         hash % CLUSTER_HASH_SLOTS

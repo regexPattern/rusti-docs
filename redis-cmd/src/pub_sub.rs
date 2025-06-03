@@ -159,7 +159,14 @@ impl From<Publish> for Vec<BulkString> {
 
 impl fmt::Display for Publish {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "PUBLISH {} {}", self.channel, self.message)
+        let mut message = self.message.to_string();
+        message.truncate(20);
+
+        if self.message.len() > 20 {
+            message.push_str("...");
+        }
+
+        write!(f, "PUBLISH {} {}", self.channel, message)
     }
 }
 

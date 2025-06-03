@@ -10,5 +10,4 @@ log = { path = "../log" }
 rand = "0.9.1"
 redis_cmd = { path = "../redis-cmd" }
 redis_resp = { path = "../redis-resp" }
-rustls = "0.23.27"
 uuid = { version = "1.16.0", features = ["v4"] }
