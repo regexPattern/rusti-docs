@@ -493,6 +493,7 @@ impl ClusterState {
 
                 let node = self.cluster_view.get_mut(id).unwrap();
                 node.flags.0 |= FLAG_FAIL;
+                node.flags.0 &= !FLAG_PFAIL;
 
                 reports.clear();
             }
