@@ -1,13 +1,13 @@
 use std::{fmt, io, sync::mpsc::SendError};
 
-use log::LogMsg;
+use log::Log;
 use redis_cmd::storage::StorageCommand;
 use redis_resp::SimpleError;
 
 /// Errores que pueden ocurrir en el funcionamiento interno del storage actor, no relacionados a las operaciones aplicadas por los comandos.
 #[derive(Debug)]
 pub enum InternalError {
-    LogSend(SendError<LogMsg>),
+    LogSend(SendError<Log>),
     PersistenceActorSend(SendError<StorageCommand>),
     PersistenceFileCommand(redis_cmd::Error),
     PersistenceFileFormat(redis_resp::Error),
@@ -47,8 +47,8 @@ impl fmt::Display for InternalError {
     }
 }
 
-impl From<SendError<LogMsg>> for InternalError {
-    fn from(err: SendError<LogMsg>) -> Self {
+impl From<SendError<Log>> for InternalError {
+    fn from(err: SendError<Log>) -> Self {
         Self::LogSend(err)
     }
 }

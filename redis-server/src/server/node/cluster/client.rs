@@ -1,133 +1,169 @@
 use std::{
-    io::Write,
-    net::{Ipv4Addr, SocketAddr, TcpStream},
-    sync::{Arc, RwLock, mpsc::Sender},
+    io::{BufRead, BufReader, Write},
+    net::{Ipv4Addr, Shutdown, SocketAddr, TcpStream},
+    sync::mpsc::{self, Sender},
+    thread,
 };
 
-use log::LogMsg;
-use redis_cmd::cluster::{ClusterCommand, Meet};
+use log::Log;
+use redis_cmd::{
+    Command,
+    cluster::{ClusterCommand, Meet, Replicate},
+    management::{ManagementCommand, Sync},
+};
 use redis_resp::{BulkString, SimpleString};
 
-use super::{
-    packet::{GossipData, GossipDataKind, Packet, PacketData}, ClusterActor, ClusterEnvelope, ClusterStreams, ClusterView, NodeId, Peer
+use crate::server::node::{
+    cluster::flags::{FLAG_MASTER, FLAG_SLAVE},
+    storage::StorageAction,
 };
 
-#[derive(Copy, Clone, Debug)]
-pub struct Myself {
-    pub id: NodeId,
-    pub ip: Ipv4Addr,
-    pub port: u16,
-    pub cluster_port: u16,
-}
+use super::{
+    ClusterState,
+    message::{
+        Message, MessageData, MessageHeader,
+        gossip::{GossipData, GossipKind},
+    },
+};
 
-impl Myself {
-    pub fn process(
-        &self,
-        envel: ClusterEnvelope,
-        cluster_view: &Arc<RwLock<ClusterView>>,
-        logger_tx: &Sender<LogMsg>,
+impl ClusterState {
+    pub fn process_command(
+        &mut self,
+        cmd: ClusterCommand,
+        client_tx: Sender<Vec<u8>>,
+        log_tx: &Sender<Log>,
     ) {
-        let reply = match envel.cmd {
-            ClusterCommand::FailOver(_fail_over) => todo!(),
-            ClusterCommand::Info(_info) => todo!(),
-            ClusterCommand::Meet(Meet {
-                ip,
-                port,
-                cluster_port,
-            }) => self.meet(ip, port, cluster_port, logger_tx),
-            ClusterCommand::Nodes(_) => {
-                let cluster_view = cluster_view.read().unwrap();
-                self.nodes(&cluster_view)
-            }
-            ClusterCommand::Shards(_shards) => todo!(),
+        let reply = match cmd {
+            ClusterCommand::FailOver(_cmd) => todo!(),
+            ClusterCommand::Info(_cmd) => todo!(),
+            ClusterCommand::Meet(cmd) => self.meet(cmd, log_tx),
+            ClusterCommand::Nodes(_) => self.nodes(),
+            ClusterCommand::Shards(_cmd) => todo!(),
+            ClusterCommand::AddSlots(_cmd) => todo!(),
+            ClusterCommand::DelSlots(_cmd) => todo!(),
+            ClusterCommand::GetKeysInSlot(_cmd) => todo!(),
+            ClusterCommand::SetSlot(_cmd) => todo!(),
+            ClusterCommand::Replicate(cmd) => self.replicate(cmd, log_tx),
         };
 
-        envel.reply_tx.send(reply).unwrap();
+        client_tx.send(reply).unwrap();
     }
 
-    fn meet(
-        &self,
-        ip: BulkString,
-        port: BulkString,
-        cluster_port: Option<BulkString>,
-        logger_tx: &Sender<LogMsg>,
-    ) -> Vec<u8> {
-        let ip: Ipv4Addr = ip.to_string().parse().unwrap();
-        let port = if let Some(port) = cluster_port {
-            port.parse().unwrap()
+    fn meet(&mut self, cmd: Meet, log_tx: &Sender<Log>) -> Vec<u8> {
+        let ip: Ipv4Addr = cmd.ip.to_string().parse().unwrap();
+
+        let port = if let Some(cluster_port) = cmd.cluster_port {
+            cluster_port.parse().unwrap()
         } else {
-            port.parse::<u16>().unwrap() + 10000
+            cmd.port.parse::<u16>().unwrap() + 10000
         };
 
         let addr = SocketAddr::new(ip.into(), port);
         let mut stream = TcpStream::connect(addr).unwrap();
 
-        logger_tx
-            .send(log::debug!("establecido handshake con el nodo {:?}", addr))
+        log_tx
+            .send(log::info!("establecido handshake con el nodo {addr:?}",))
             .unwrap();
 
-        let packet = Packet {
-            header: self.into(),
-            data: PacketData::Gossip(GossipData {
-                kind: GossipDataKind::Meet,
-                cluster_view: vec![self.into()],
+        let msg = Message {
+            header: MessageHeader::from(&self.myself),
+            data: MessageData::Gossip(GossipData {
+                kind: GossipKind::Meet,
+                nodes: self.select_random_nodes(),
             }),
         };
 
-        stream.write_all(&Vec::from(packet)).unwrap();
+        stream.write_all(&Vec::from(&msg)).unwrap();
 
         SimpleString::from("OK").into()
     }
 
-    pub fn ping(
-        &self,
-        peer: &Peer,
-        cluster_view: &ClusterView,
-        cluster_streams: &mut ClusterStreams,
-    ) {
-        let stream = cluster_streams.entry(peer.id).or_insert_with(|| {
-            TcpStream::connect(SocketAddr::new(peer.ip.into(), peer.cluster_port)).unwrap()
+    fn nodes(&self) -> Vec<u8> {
+        let mut nodes = Vec::with_capacity(self.cluster_view.len());
+
+        for node in self.cluster_view.values() {
+            nodes.push(format!("{node:?}"));
+        }
+
+        BulkString::from(nodes.join("\n")).into()
+    }
+
+    fn replicate(&mut self, cmd: Replicate, log_tx: &Sender<Log>) -> Vec<u8> {
+        if let Some(stream) = self.replication_stream.take() {
+            stream.shutdown(Shutdown::Both).unwrap();
+        }
+
+        let node_id = cmd.node_id.to_string();
+
+        let mut master_id = [0u8; 20];
+        hex::decode_to_slice(&node_id, &mut master_id).unwrap();
+
+        self.myself.master_id = Some(master_id);
+
+        self.myself.flags.0 &= !FLAG_MASTER;
+        self.myself.flags.0 |= FLAG_SLAVE;
+
+        log_tx
+            .send(log::info!("configurado nodo como replica de {node_id}"))
+            .unwrap();
+
+        // TODO lo que vamos a hacer es que nuestra implementacion no va a soportar que se pueda
+        // asignar un nodo como master si el nodo en cuestion no conoce al master todavia.
+
+        let master = self.cluster_view.get(&master_id).unwrap();
+        let mut stream =
+            TcpStream::connect(SocketAddr::new(master.ip.into(), master.port)).unwrap();
+
+        let storage_tx = self.storage_tx.clone();
+
+        let log_tx = log_tx.clone();
+
+        thread::spawn(move || {
+            let bytes = Vec::from(Command::Management(ManagementCommand::Sync(Sync)));
+            stream.write_all(&bytes).unwrap();
+
+            let mut full_sync_done = false;
+
+            loop {
+                let mut reader = BufReader::new(&mut stream);
+                match reader.fill_buf() {
+                    Ok(bytes) if !bytes.is_empty() => {
+                        let cmd = Command::try_from(bytes).unwrap();
+
+                        if let Command::Storage(cmd) = cmd {
+                            let (reply_tx, reply_rx) = mpsc::channel();
+
+                            storage_tx
+                                .send(StorageAction::ClientCommand {
+                                    cmd,
+                                    client_tx: reply_tx,
+                                })
+                                .unwrap();
+
+                            reply_rx.recv().unwrap();
+
+                            if !full_sync_done {
+                                log_tx
+                                    .send(log::info!(
+                                        "replicado información completa de nodo {node_id}",
+                                    ))
+                                    .unwrap();
+
+                                full_sync_done = true;
+                            }
+                        }
+                    }
+                    Ok(_) => {
+                        log_tx
+                            .send(log::warn!("replicatoin link con nodo {node_id} cerrado"))
+                            .unwrap();
+                        return;
+                    }
+                    Err(_) => todo!(),
+                }
+            }
         });
 
-        let mut cluster_view: Vec<_> = cluster_view.values().copied().collect();
-        cluster_view.push(self.into());
-
-        let random_peer: Vec<_> = ClusterActor::pick_random_peers(&cluster_view)
-            .copied()
-            .collect();
-
-        let packet = Packet {
-            header: self.into(),
-            data: PacketData::Gossip(GossipData {
-                kind: GossipDataKind::Ping,
-                cluster_view: random_peer,
-            }),
-        };
-
-        stream.write_all(&Vec::from(packet)).unwrap();
-    }
-
-    fn nodes(&self, cluster_view: &ClusterView) -> Vec<u8> {
-        let mut output = vec![format!("{}", Peer::from(self))];
-
-        for peer in cluster_view.values() {
-            output.push(format!("{peer}"));
-        }
-
-        BulkString::from(output.join("\n")).into()
-    }
-}
-
-// TODO realmente tenemos que eliminar esto y obtener guardarnos la información del header que nos
-// manda el nodo, no incluirnos a nosotros mismos en la cluster view que compartimos.
-
-impl From<&Myself> for Peer {
-    fn from(myself: &Myself) -> Self {
-        Self {
-            id: myself.id,
-            ip: myself.ip,
-            port: myself.port,
-            cluster_port: myself.cluster_port,
-        }
+        SimpleString::from("OK").into()
     }
 }

@@ -14,7 +14,7 @@ use std::{
 };
 
 use error::InternalError;
-use log::LogMsg;
+use log::Log;
 use node::Node;
 
 use crate::{config::Config, thread_pool::ThreadPool};
@@ -25,7 +25,7 @@ pub struct Server {
     port: u16,
     thread_pool: ThreadPool,
     node: Arc<Node>,
-    logger_tx: Sender<LogMsg>,
+    logger_tx: Sender<Log>,
 }
 
 impl Server {
@@ -53,7 +53,7 @@ impl Server {
 
     fn setup_logger(
         logfile: Option<PathBuf>,
-        logger_rx: Receiver<LogMsg>,
+        logger_rx: Receiver<Log>,
     ) -> Result<(), InternalError> {
         let mut log_file: Box<dyn Write + Send> = if let Some(path) = logfile {
             Box::new(

@@ -12,7 +12,7 @@ use std::{
 use crate::error::Error;
 use redis_cmd::Command;
 // use crate::client_pub_sub_broker::PubSubBroker;
-use log::LogMsg;
+use log::Log;
 use redis_cmd::pub_sub::Publish;
 use redis_cmd::pub_sub::{PubSubCommand, Subscribe, Unsubscribe};
 use redis_resp::{RespDataType, SimpleError};
@@ -22,11 +22,11 @@ use redis_resp::{RespDataType, SimpleError};
 #[derive(Debug)]
 pub struct Client {
     //STREAM
-    logger_tx: Sender<LogMsg>,
+    logger_tx: Sender<Log>,
 }
 
 impl Client {
-    pub fn new(logger_tx: Sender<LogMsg>) -> Self {
+    pub fn new(logger_tx: Sender<Log>) -> Self {
         //CREAR CON EL STREAM YA!!!!
         //TOTAL SERA SIEMPRE  EL MISMO NO???
 
@@ -156,7 +156,7 @@ impl Client {
     fn keep_alive(
         &mut self,
         server_conn: TcpStream,
-        logger_tx: Sender<LogMsg>,
+        logger_tx: Sender<Log>,
         pub_sub_reply_tx: Sender<RespDataType>,
     ) -> Result<Sender<redis_cmd::Command>, Error> {
         let write_server_stream = server_conn.try_clone()?;
@@ -228,7 +228,7 @@ impl Client {
     fn listen_incoming_commands(
         cmd_pub_sub_rx: Receiver<redis_cmd::Command>,
         pub_sub_reply_tx: &Sender<RespDataType>, //reply a la GUI
-        _logger_tx: &Sender<LogMsg>,
+        _logger_tx: &Sender<Log>,
         mut write_server_stream: TcpStream,
     ) -> Result<(), Error> {
         //ver q tipo devolver en este chanelll!!

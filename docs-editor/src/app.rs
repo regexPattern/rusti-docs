@@ -7,7 +7,7 @@ use std::time::Duration;
 use crate::consola::Consola;
 use eframe::egui;
 
-use log::LogMsg;
+use log::Log;
 // use redis_cmd::pub_sub::PubSubCommand;
 use redis_lib::client_struct::Client;
 use redis_resp::RespDataType;
@@ -38,7 +38,7 @@ impl Default for ThreadedApp {
                              hist: Arc<Mutex<Vec<String>>>,
                              _flag: Arc<Mutex<bool>>| {
             // Logger dummy
-            let (logger_tx, _logger_rx) = mpsc::channel::<LogMsg>();
+            let (logger_tx, _logger_rx) = mpsc::channel::<Log>();
 
             let client = Client::new(logger_tx);
 
@@ -90,7 +90,7 @@ impl Default for ThreadedApp {
                 let mut tx_guard = cmd_pub_sub_tx_mine.lock().unwrap();
                 if tx_guard.is_none() {
                     // Primera vez: inicializa la conexión y obtiene el channel
-                    let (logger_tx, _logger_rx) = mpsc::channel::<LogMsg>();
+                    let (logger_tx, _logger_rx) = mpsc::channel::<Log>();
 
                     let mut client = Client::new(logger_tx);
 

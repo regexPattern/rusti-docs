@@ -6,31 +6,36 @@ use std::{
     net::TcpStream,
     sync::{
         Arc, Mutex,
-        mpsc::{self, Sender},
+        mpsc::{self, Sender, Receiver},
     },
     thread,
 };
 
 pub use error::InternalError;
 use error::OperationError;
-use log::LogMsg;
+use log::Log;
 use redis_cmd::{Command, pub_sub::*};
 use redis_resp::{Array, BulkString, Integer, RespDataType, SimpleError};
 use uuid::Uuid;
+
+use crate::server::node::cluster::ClusterAction;
+use crate::server::node::cluster::message::PublishData;
 
 type SubsRegister = HashMap<BulkString, HashMap<Uuid, Sender<Vec<u8>>>>;
 
 #[derive(Debug)]
 pub struct PubSubBroker {
     reg: Arc<Mutex<SubsRegister>>,
-    logger_tx: Sender<LogMsg>,
+    logger_tx: Sender<Log>,
 }
 
 #[derive(Debug)]
 pub struct PubSubEnvelope {
     pub client: TcpStream,
     pub cmd: PubSubCommand,
+    pub cluster_tx: Sender<ClusterAction>,
 }
+
 
 #[derive(Debug)]
 struct Subscriber {
@@ -40,13 +45,27 @@ struct Subscriber {
 }
 
 impl PubSubBroker {
-    pub fn start(logger_tx: Sender<LogMsg>) -> Sender<PubSubEnvelope> {
+    pub fn start(logger_tx: Sender<Log>) -> (Sender<PubSubEnvelope>, Sender<PublishData>) {
         let (tx, rx) = mpsc::channel();
 
         let mut broker = Self {
             reg: Arc::new(Mutex::new(HashMap::new())),
             logger_tx: logger_tx.clone(),
         };
+
+        let (cluster_pub_sub_tx, cluster_pub_rx) = mpsc::channel::<PublishData>();
+        
+        let reg = broker.reg.clone();
+        let logger_tx_clone = logger_tx.clone();
+        thread::spawn(move || {
+            for data in cluster_pub_rx {
+                PubSubBroker::publish_from_cluster(&data.channel, data.message, reg.clone(), logger_tx_clone.clone())
+                    .unwrap_or_else(|err| {
+                        logger_tx_clone.send(log::error!("{err}")).unwrap();
+                        Vec::new()
+                    });
+            }
+        });
 
         thread::spawn(move || {
             while let Ok(envel) = rx.recv() {
@@ -57,7 +76,7 @@ impl PubSubBroker {
             }
         });
 
-        tx
+        (tx, cluster_pub_sub_tx)
     }
 
     pub fn process(&mut self, mut envel: PubSubEnvelope) -> Result<(), InternalError> {
@@ -67,7 +86,7 @@ impl PubSubBroker {
                 Self::subscribe(&sub, &self.reg, channels, &self.logger_tx)?;
             }
             PubSubCommand::Publish(Publish { channel, message }) => {
-                let reply = self.publish(&channel, message)?;
+                let reply = self.publish(&channel, message, envel.cluster_tx)?;
                 envel.client.write_all(&reply)?;
             }
             PubSubCommand::Unsubscribe(Unsubscribe { channels }) => {
@@ -89,7 +108,7 @@ impl PubSubBroker {
     fn keep_alive(
         &mut self,
         client: TcpStream,
-        logger_tx: Sender<LogMsg>,
+        logger_tx: Sender<Log>,
     ) -> Result<Subscriber, InternalError> {
         let (sub_tx, sub_rx) = mpsc::channel();
 
@@ -108,6 +127,8 @@ impl PubSubBroker {
         thread::spawn(move || {
             for message in sub_rx {
                 if let Err(err) = sub_publish_stream.write_all(&message) {
+                    //aqui habria q envia un paquete publish a cada uno de los otros noodos
+                    //con el mismo mensjae
                     logger_tx_clone
                         .send(log::warn!(
                             "error mandando mensaje a cliente {}: {err}",
@@ -161,7 +182,7 @@ impl PubSubBroker {
     fn listen_incoming_commands(
         sub: &Subscriber,
         reg: &Arc<Mutex<SubsRegister>>,
-        logger_tx: &Sender<LogMsg>,
+        logger_tx: &Sender<Log>,
     ) -> Result<(), InternalError> {
         let commands_stream = sub.conn.try_clone()?;
         let mut reader = BufReader::new(commands_stream);
@@ -197,7 +218,7 @@ impl PubSubBroker {
         sub: &Subscriber,
         reg: &Arc<Mutex<SubsRegister>>,
         cmd: Command,
-        logger_tx: &Sender<LogMsg>,
+        logger_tx: &Sender<Log>,
     ) -> Result<(), InternalError> {
         match cmd {
             Command::PubSub(PubSubCommand::Subscribe(Subscribe { channels })) => {
@@ -220,7 +241,7 @@ impl PubSubBroker {
         client: &Subscriber,
         state: &Arc<Mutex<SubsRegister>>,
         channels: Vec<BulkString>,
-        logger_tx: &Sender<LogMsg>,
+        logger_tx: &Sender<Log>,
     ) -> Result<(), InternalError> {
         let mut state = state.lock()?;
 
@@ -253,7 +274,7 @@ impl PubSubBroker {
     }
 
     // https://redis.io/docs/latest/commands/publish
-    fn publish(&self, chan_name: &BulkString, msg: BulkString) -> Result<Vec<u8>, InternalError> {
+    fn publish(&self, chan_name: &BulkString, msg: BulkString, cluster_tx: Sender<ClusterAction>) -> Result<Vec<u8>, InternalError> {
         let state = self.reg.lock()?;
         let mut n_chan_subs = 0;
 
@@ -271,8 +292,40 @@ impl PubSubBroker {
             }
         }
 
+        cluster_tx
+            .send(ClusterAction::BroadCastPublish { channel: chan_name.clone(), message: msg.clone() })
+            .unwrap();
+
+
         self.logger_tx.send(log::info!(
             "publicados {} bytes al channel {chan_name}",
+            msg.len()
+        ))?;
+
+        Ok(Integer::from(n_chan_subs as i64).into())
+    }
+
+    // https://redis.io/docs/latest/commands/publish
+    fn publish_from_cluster(chan_name: &BulkString, msg: BulkString, reg: Arc<Mutex<SubsRegister>>, logger_tx: Sender<Log> ) -> Result<Vec<u8>, InternalError> {
+        let state = reg.lock()?;
+        let mut n_chan_subs = 0;
+
+        if let Some(chan_subs) = state.get(chan_name) {
+            n_chan_subs = chan_subs.len();
+
+            for client_tx in chan_subs.values() {
+                let reply = Array::from(vec![
+                    BulkString::from("message").into(),
+                    chan_name.clone().into(),
+                    msg.clone().into(),
+                ]);
+
+                client_tx.send(reply.into())?;
+            }
+        }
+
+        logger_tx.send(log::info!(
+            "Republicados {} bytes al channel {chan_name} que vienen de otro nodo",
             msg.len()
         ))?;
 
@@ -284,7 +337,7 @@ impl PubSubBroker {
         client: &Subscriber,
         state: &Arc<Mutex<SubsRegister>>,
         mut channels: Vec<BulkString>,
-        logger_tx: &Sender<LogMsg>,
+        logger_tx: &Sender<Log>,
     ) -> Result<(), InternalError> {
         let mut state = state.lock()?;
 
@@ -416,7 +469,7 @@ impl PubSubBroker {
     fn prune_sub(
         client_id: Uuid,
         state: &Arc<Mutex<SubsRegister>>,
-        logger_tx: &Sender<LogMsg>,
+        logger_tx: &Sender<Log>,
     ) -> Result<(), InternalError> {
         let mut state = state.lock()?;
 

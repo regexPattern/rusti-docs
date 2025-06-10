@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+chrono = "0.4.41"
 crc16 = "0.4"
 hex = "0.4.3"
 log = { path = "../log" }

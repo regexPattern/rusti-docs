@@ -1,6 +1,6 @@
 use std::{fmt, io, sync::mpsc::SendError};
 
-use log::LogMsg;
+use log::Log;
 
 use crate::thread_pool;
 
@@ -11,7 +11,7 @@ pub enum InternalError {
     AddrBind(io::Error),
     LogFileOpen(io::Error),
     LogFileWrite(io::Error),
-    LogSend(SendError<LogMsg>),
+    LogSend(SendError<Log>),
     Node(node::InternalError),
     ThreadPool(thread_pool::Error),
 }
@@ -37,8 +37,8 @@ impl fmt::Display for InternalError {
     }
 }
 
-impl From<SendError<LogMsg>> for InternalError {
-    fn from(err: SendError<LogMsg>) -> Self {
+impl From<SendError<Log>> for InternalError {
+    fn from(err: SendError<Log>) -> Self {
         Self::LogSend(err)
     }
 }

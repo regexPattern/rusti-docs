@@ -11,18 +11,17 @@ use std::{
     fs::{File, OpenOptions},
     io::{Read, Write},
     path::PathBuf,
-    sync::mpsc::{self, Sender},
+    sync::mpsc::{self, Receiver, Sender},
     thread,
 };
 
-use crc16::{State, XMODEM};
 use data_type::RedisDataType;
 pub use error::InternalError;
-use log::LogMsg;
+use log::Log;
 use redis_cmd::{Command, storage::*};
 use redis_resp::{Array, BulkString};
 
-const CLUSTER_HASH_SLOTS: u16 = 16384;
+use crate::server::node::replication::ReplicationAction;
 
 #[derive(Debug)]
 pub struct StorageActor {
@@ -31,18 +30,24 @@ pub struct StorageActor {
 }
 
 #[derive(Debug)]
-pub struct StorageEnvelope {
-    pub cmd: StorageCommand,
-    pub reply_tx: Sender<Vec<u8>>,
+pub enum StorageAction {
+    ClientCommand {
+        cmd: StorageCommand,
+        client_tx: Sender<Vec<u8>>,
+    },
+    DumpHistory {
+        history_tx: Sender<Vec<StorageCommand>>,
+    },
 }
 
 impl StorageActor {
     pub fn start(
         append_file_path: PathBuf,
-        logger_tx: Sender<LogMsg>,
-    ) -> Result<Sender<StorageEnvelope>, InternalError> {
-        let (storage_tx, storage_rx) = mpsc::channel();
-        let (persistence_tx, persistence_rx) = mpsc::channel();
+        actions_rx: Receiver<StorageAction>,
+        replication_tx: Sender<ReplicationAction>,
+        logger_tx: Sender<Log>,
+    ) -> Result<(), InternalError> {
+        let (commands_tx, commands_rx) = mpsc::channel();
 
         let mut persistence_file = OpenOptions::new()
             .read(true)
@@ -51,92 +56,105 @@ impl StorageActor {
             .open(&append_file_path)
             .map_err(InternalError::PersistenceFileOpen)?;
 
-        let mut storage_actor = Self {
-            data: HashMap::new(),
-            persistence_tx,
-        };
-
-        storage_actor.rebuild_from_persistence_file(&mut persistence_file, &logger_tx)?;
-
-        let logger_tx_clone = logger_tx.clone();
-
-        thread::spawn(move || {
-            while let Ok(envel) = storage_rx.recv() {
-                if let Err(err) = storage_actor.process(envel) {
-                    logger_tx_clone.send(log::error!("{err}")).unwrap();
-                    break;
-                }
-            }
-        });
-
         logger_tx.send(log::info!(
             "persistiendo base de datos al archivo {:?}",
             append_file_path
         ))?;
 
-        thread::spawn(move || {
-            for cmd in persistence_rx {
-                let bytes = Vec::from(Command::Storage(cmd));
-                if let Err(err) = Self::write_to_persistence_file(&mut persistence_file, &bytes) {
-                    let _ = logger_tx.send(log::error!("{err}"));
-                }
-            }
-        });
+        let mut storage_actor = Self {
+            data: HashMap::new(),
+            persistence_tx: commands_tx,
+        };
 
-        Ok(storage_tx)
-    }
+        let history = Self::load_history(&mut persistence_file);
 
-    fn rebuild_from_persistence_file(
-        &mut self,
-        file: &mut File,
-        logger_tx: &Sender<LogMsg>,
-    ) -> Result<(), InternalError> {
-        let mut bytes = Vec::new();
-
-        file.read_to_end(&mut bytes)
-            .map_err(InternalError::PersistenceFileRead)?;
-
-        let mut remaining_bytes = bytes.as_slice();
-        let mut n_applied_cmds = 0;
-
-        while !remaining_bytes.is_empty() {
-            let result = Array::parse_incremental(remaining_bytes)
-                .map_err(InternalError::PersistenceFileFormat)?;
-
-            let cmd = Command::try_from(result.0).map_err(InternalError::PersistenceFileCommand)?;
-
-            if let Command::Storage(cmd) = cmd {
-                self.apply(cmd);
-            }
-
-            remaining_bytes = result.1;
-            n_applied_cmds += 1;
-        }
-
-        if n_applied_cmds > 0 {
-            logger_tx.send(log::debug!(
-                "recuperados {n_applied_cmds} comandos del archivo de persistencia"
+        if history.len() > 0 {
+            logger_tx.send(log::info!(
+                "recuperados {} comandos del archivo de persistencia",
+                history.len()
             ))?;
 
             logger_tx.send(log::info!("reestablecido estado de la base de datos"))?;
         }
 
+        {
+            let _logger_tx = logger_tx.clone();
+            thread::spawn(move || {
+                for action in actions_rx {
+                    match action {
+                        StorageAction::ClientCommand { cmd, client_tx } => {
+                            let reply = storage_actor.process_command(cmd).unwrap();
+                            let _ = client_tx.send(reply);
+                        }
+                        StorageAction::DumpHistory { history_tx } => {
+                            let mut file = OpenOptions::new()
+                                .read(true)
+                                .open(&append_file_path)
+                                .unwrap();
+
+                            history_tx.send(Self::load_history(&mut file)).unwrap();
+                        }
+                    }
+                }
+            });
+        }
+
+        {
+            thread::spawn(move || {
+                for cmd in commands_rx {
+                    let bytes = Vec::from(Command::Storage(cmd));
+                    if let Err(err) = Self::persist(&mut persistence_file, &bytes) {
+                        logger_tx.send(log::error!("{err}")).unwrap();
+                    }
+                    replication_tx
+                        .send(ReplicationAction::BroadcastCommand { bytes })
+                        .unwrap();
+                }
+            });
+        }
+
         Ok(())
     }
 
-    fn write_to_persistence_file(file: &mut File, bytes: &[u8]) -> Result<(), InternalError> {
+    fn load_history(file: &mut File) -> Vec<StorageCommand> {
+        let mut history = Vec::new();
+        let mut bytes = Vec::new();
+
+        file.read_to_end(&mut bytes)
+            .map_err(InternalError::PersistenceFileRead)
+            .unwrap();
+
+        let mut remaining_bytes = bytes.as_slice();
+
+        while !remaining_bytes.is_empty() {
+            let result = Array::parse_incremental(remaining_bytes)
+                .map_err(InternalError::PersistenceFileFormat)
+                .unwrap();
+
+            let cmd = Command::try_from(result.0)
+                .map_err(InternalError::PersistenceFileCommand)
+                .unwrap();
+
+            if let Command::Storage(cmd) = cmd {
+                history.push(cmd);
+            }
+
+            remaining_bytes = result.1;
+        }
+
+        history
+    }
+
+    fn persist(file: &mut File, bytes: &[u8]) -> Result<(), InternalError> {
         file.write_all(bytes)
             .map_err(InternalError::PersistenceFileWrite)?;
         file.sync_all().map_err(InternalError::PersistenceFileWrite)
     }
 
-    pub fn process(&mut self, envel: StorageEnvelope) -> Result<(), InternalError> {
-        let reply = self.apply(envel.cmd.clone());
-
-        self.persistence_tx.send(envel.cmd).unwrap();
-        envel.reply_tx.send(reply).unwrap();
-
-        Ok(())
+    pub fn process_command(&mut self, cmd: StorageCommand) -> Result<Vec<u8>, InternalError> {
+        let reply = self.apply(cmd.clone());
+        self.persistence_tx.send(cmd).unwrap();
+        Ok(reply)
     }
 
     fn apply(&mut self, cmd: StorageCommand) -> Vec<u8> {
@@ -179,11 +197,5 @@ impl StorageActor {
             StorageCommand::Decr(Decr { key }) => self.decr(key),
             StorageCommand::Incr(Incr { key }) => self.incr(key),
         }
-    }
-
-    fn _hash_key(key: &BulkString) -> u16 {
-        let key: &str = key.into();
-        let hash = State::<XMODEM>::calculate(key.as_bytes());
-        hash % CLUSTER_HASH_SLOTS
     }
 }

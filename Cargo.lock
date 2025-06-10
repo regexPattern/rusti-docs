@@ -2181,6 +2181,7 @@ version = "0.1.0"
 name = "redis_server"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "crc16",
  "hex",
  "log 0.1.0",

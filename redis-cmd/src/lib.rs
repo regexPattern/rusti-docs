@@ -2,6 +2,7 @@
 
 pub mod cluster;
 mod error;
+pub mod management;
 pub mod pub_sub;
 pub mod storage;
 
@@ -9,6 +10,7 @@ use std::fmt;
 
 use cluster::*;
 pub use error::Error;
+use management::*;
 use pub_sub::*;
 use storage::*;
 
@@ -19,6 +21,7 @@ pub enum Command {
     Storage(StorageCommand),
     PubSub(PubSubCommand),
     Cluster(ClusterCommand),
+    Management(ManagementCommand),
 }
 
 impl TryFrom<&[u8]> for Command {
@@ -88,6 +91,11 @@ impl TryFrom<Array> for Command {
                     "INFO" => Self::Cluster(Info::from_args(args)?.into()),
                     "NODES" => Self::Cluster(Nodes::from_args(args)?.into()),
                     "SHARDS" => Self::Cluster(Shards::from_args(args)?.into()),
+                    "ADDSLOTS" => Self::Cluster(AddSlots::from_args(args)?.into()),
+                    "DELSLOTS" => Self::Cluster(DelSlots::from_args(args)?.into()),
+                    "GETKEYSINSLOT" => Self::Cluster(GetKeysInSlot::from_args(args)?.into()),
+                    "SETSLOT" => Self::Cluster(SetSlot::from_args(args)?.into()),
+                    "REPLICATE" => Self::Cluster(Replicate::from_args(args)?.into()),
                     _ => return Err(Error::CommandNotSupported),
                 }
             }
@@ -105,6 +113,8 @@ impl TryFrom<Array> for Command {
                 }
             }
 
+            "SYNC" => Self::Management(Sync::from_args(args)?.into()),
+
             _ => return Err(Error::CommandNotSupported),
         };
 
@@ -118,6 +128,7 @@ impl From<Command> for Vec<u8> {
             Command::Storage(cmd) => cmd.into(),
             Command::PubSub(cmd) => cmd.into(),
             Command::Cluster(cmd) => todo!("serializar comandos de cluster para los clientes"),
+            Command::Management(cmd) => cmd.into(),
         };
 
         let cmd_dt: Vec<_> = cmd_bs.into_iter().map(RespDataType::from).collect();
@@ -150,6 +161,7 @@ impl fmt::Display for Command {
             Command::Storage(cmd) => write!(f, "{cmd}"),
             Command::PubSub(cmd) => write!(f, "{cmd}"),
             Command::Cluster(cmd) => write!(f, "{cmd}"),
+            Command::Management(cmd) => write!(f, "{cmd}"),
         }
     }
 }

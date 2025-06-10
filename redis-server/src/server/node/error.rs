@@ -1,21 +1,21 @@
 use std::{fmt, io, sync::mpsc::SendError};
 
-use log::LogMsg;
+use log::Log;
 
 use super::{
-    cluster::ClusterEnvelope,
+    cluster::ClusterAction,
     pub_sub::{self, PubSubEnvelope},
-    storage::{self, StorageEnvelope},
+    storage::{self, StorageAction},
 };
 
 #[derive(Debug)]
 pub enum InternalError {
-    LogSend(SendError<LogMsg>),
-    ClusterActorSend(SendError<ClusterEnvelope>),
+    LogSend(SendError<Log>),
+    ClusterActorSend(SendError<ClusterAction>),
     PubSubBroker(pub_sub::InternalError),
     PubSubBrokerSend(SendError<PubSubEnvelope>),
     StorageActor(storage::InternalError),
-    StorageActorSend(SendError<StorageEnvelope>),
+    StorageActorSend(SendError<StorageAction>),
     StreamRead(io::Error),
     StreamWrite(io::Error),
 }
@@ -27,13 +27,13 @@ impl fmt::Display for InternalError {
         match self {
             InternalError::LogSend(err) => write!(
                 f,
-                "error enviando envelope por el canal del cluster actor: {err}"
+                "error enviando action por el canal del cluster actor: {err}"
             ),
             InternalError::ClusterActorSend(err) => write!(f, "{err}"),
             InternalError::PubSubBroker(err) => write!(f, "{err}"),
             InternalError::PubSubBrokerSend(err) => write!(
                 f,
-                "error enviando envelope por el canal del pub/sub broker: {err}"
+                "error enviando action por el canal del pub/sub broker: {err}"
             ),
             InternalError::StorageActor(err) => write!(f, "{err}"),
             InternalError::StreamRead(err) => {
@@ -41,7 +41,7 @@ impl fmt::Display for InternalError {
             }
             InternalError::StorageActorSend(err) => write!(
                 f,
-                "error enviando envelope por el canal del storage actor: {err}"
+                "error enviando action por el canal del storage actor: {err}"
             ),
             InternalError::StreamWrite(err) => {
                 write!(f, "error escribiendo al stream del cliente: {err}")
@@ -50,14 +50,14 @@ impl fmt::Display for InternalError {
     }
 }
 
-impl From<SendError<LogMsg>> for InternalError {
-    fn from(err: SendError<LogMsg>) -> Self {
+impl From<SendError<Log>> for InternalError {
+    fn from(err: SendError<Log>) -> Self {
         Self::LogSend(err)
     }
 }
 
-impl From<SendError<ClusterEnvelope>> for InternalError {
-    fn from(err: SendError<ClusterEnvelope>) -> Self {
+impl From<SendError<ClusterAction>> for InternalError {
+    fn from(err: SendError<ClusterAction>) -> Self {
         Self::ClusterActorSend(err)
     }
 }
@@ -80,8 +80,8 @@ impl From<storage::InternalError> for InternalError {
     }
 }
 
-impl From<SendError<StorageEnvelope>> for InternalError {
-    fn from(err: SendError<StorageEnvelope>) -> Self {
+impl From<SendError<StorageAction>> for InternalError {
+    fn from(err: SendError<StorageAction>) -> Self {
         Self::StorageActorSend(err)
     }
 }

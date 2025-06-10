@@ -34,6 +34,7 @@ pub struct TlsConfig {
 pub struct ClusterConfig {
     pub bind: Ipv4Addr,
     pub port: u16,
+    pub cluster_port: u16,
     pub config_file: PathBuf,
     pub node_timeout: u16,
 }
@@ -56,7 +57,8 @@ impl ClusterConfig {
     fn default(bind: Ipv4Addr, port: u16) -> Self {
         Self {
             bind,
-            port: port + 10000,
+            port,
+            cluster_port: port + 10000,
             config_file: PathBuf::from("./nodes.conf"),
             node_timeout: 15000,
         }
@@ -93,7 +95,7 @@ impl Config {
                 let mut cluster_config = ClusterConfig::default(config.bind, config.port);
 
                 if let Some(cluster_port) = opts.get("cluster-port") {
-                    cluster_config.port = cluster_port.parse().map_err(Error::PortParse)?;
+                    cluster_config.cluster_port = cluster_port.parse().map_err(Error::PortParse)?;
                 }
                 if let Some(config_file) = opts.get("cluster-config-file") {
                     let config_file = config_file.trim_matches('"');

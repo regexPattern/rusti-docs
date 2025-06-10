@@ -3,7 +3,7 @@ use std::{
     sync::{MutexGuard, PoisonError, mpsc::SendError},
 };
 
-use log::LogMsg;
+use log::Log;
 use redis_resp::SimpleError;
 
 use super::SubsRegister;
@@ -11,7 +11,7 @@ use super::SubsRegister;
 /// Errores que pueden ocurrir en el funcionamiento interno del pub/sub broker, no relacionados a las operaciones de pub/sub realizadas por los clientes.
 #[derive(Debug)]
 pub enum InternalError {
-    LogSend(SendError<LogMsg>),
+    LogSend(SendError<Log>),
     ClientReplySend(SendError<Vec<u8>>),
     PoisonState,
     Io(io::Error),
@@ -32,8 +32,8 @@ impl fmt::Display for InternalError {
     }
 }
 
-impl From<SendError<LogMsg>> for InternalError {
-    fn from(err: SendError<LogMsg>) -> Self {
+impl From<SendError<Log>> for InternalError {
+    fn from(err: SendError<Log>) -> Self {
         Self::LogSend(err)
     }
 }

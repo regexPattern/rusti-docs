@@ -11,16 +11,26 @@ pub enum ClusterCommand {
     Meet(Meet),
     Nodes(Nodes),
     Shards(Shards),
+    AddSlots(AddSlots),
+    DelSlots(DelSlots),
+    GetKeysInSlot(GetKeysInSlot),
+    SetSlot(SetSlot),
+    Replicate(Replicate),
 }
 
 impl From<ClusterCommand> for Vec<BulkString> {
     fn from(cmd: ClusterCommand) -> Self {
         match cmd {
-            ClusterCommand::FailOver(cmd) => todo!(),
-            ClusterCommand::Info(cmd) => todo!(),
+            ClusterCommand::FailOver(cmd) => cmd.into(),
+            ClusterCommand::Info(cmd) => cmd.into(),
             ClusterCommand::Meet(cmd) => cmd.into(),
             ClusterCommand::Nodes(cmd) => cmd.into(),
-            ClusterCommand::Shards(cmd) => todo!(),
+            ClusterCommand::Shards(cmd) => cmd.into(),
+            ClusterCommand::AddSlots(cmd) => cmd.into(),
+            ClusterCommand::DelSlots(cmd) => cmd.into(),
+            ClusterCommand::GetKeysInSlot(cmd) => cmd.into(),
+            ClusterCommand::SetSlot(cmd) => cmd.into(),
+            ClusterCommand::Replicate(cmd) => cmd.into(),
         }
     }
 }
@@ -28,11 +38,16 @@ impl From<ClusterCommand> for Vec<BulkString> {
 impl fmt::Display for ClusterCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ClusterCommand::FailOver(cmd) => todo!(),
-            ClusterCommand::Info(cmd) => todo!(),
+            ClusterCommand::FailOver(cmd) => write!(f, "{cmd}"),
+            ClusterCommand::Info(cmd) => write!(f, "{cmd}"),
             ClusterCommand::Meet(cmd) => write!(f, "{cmd}"),
             ClusterCommand::Nodes(cmd) => write!(f, "{cmd}"),
-            ClusterCommand::Shards(cmd) => todo!(),
+            ClusterCommand::Shards(cmd) => write!(f, "{cmd}"),
+            ClusterCommand::AddSlots(cmd) => write!(f, "{cmd}"),
+            ClusterCommand::DelSlots(cmd) => write!(f, "{cmd}"),
+            ClusterCommand::GetKeysInSlot(cmd) => write!(f, "{cmd}"),
+            ClusterCommand::SetSlot(cmd) => write!(f, "{cmd}"),
+            ClusterCommand::Replicate(cmd) => write!(f, "{cmd}"),
         }
     }
 }
@@ -60,8 +75,8 @@ impl Meet {
 impl From<Meet> for Vec<BulkString> {
     fn from(cmd: Meet) -> Self {
         let mut cmd_bs = vec!["MEET".into(), cmd.ip, cmd.port];
-        if let Some(port) = cmd.cluster_port {
-            cmd_bs.push(port);
+        if let Some(cluster_port) = cmd.cluster_port {
+            cmd_bs.push(cluster_port);
         }
         cmd_bs
     }
@@ -77,8 +92,8 @@ impl fmt::Display for Meet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "CLUSTER MEET {} {}", self.ip, self.port)?;
 
-        if let Some(port) = &self.cluster_port {
-            write!(f, " {}", port)?;
+        if let Some(cluster_port) = &self.cluster_port {
+            write!(f, " {}", cluster_port)?;
         }
 
         Ok(())
@@ -100,9 +115,21 @@ impl FailOver {
     }
 }
 
+impl From<FailOver> for Vec<BulkString> {
+    fn from(cmd: FailOver) -> Self {
+        vec!["FAILOVER".into()]
+    }
+}
+
 impl From<FailOver> for ClusterCommand {
     fn from(cmd: FailOver) -> Self {
         ClusterCommand::FailOver(cmd)
+    }
+}
+
+impl fmt::Display for FailOver {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CLUSTER FAILOVER")
     }
 }
 
@@ -118,9 +145,21 @@ impl Info {
     }
 }
 
+impl From<Info> for Vec<BulkString> {
+    fn from(cmd: Info) -> Self {
+        vec!["INFO".into()]
+    }
+}
+
 impl From<Info> for ClusterCommand {
     fn from(cmd: Info) -> Self {
         ClusterCommand::Info(cmd)
+    }
+}
+
+impl fmt::Display for Info {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CLUSTER INFO")
     }
 }
 
@@ -166,8 +205,204 @@ impl Shards {
     }
 }
 
+impl From<Shards> for Vec<BulkString> {
+    fn from(cmd: Shards) -> Self {
+        vec!["SHARDS".into()]
+    }
+}
+
 impl From<Shards> for ClusterCommand {
     fn from(cmd: Shards) -> Self {
         ClusterCommand::Shards(cmd)
+    }
+}
+
+impl fmt::Display for Shards {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CLUSTER SHARDS")
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AddSlots {
+    slot: BulkString,
+    slots: Vec<BulkString>,
+}
+
+impl AddSlots {
+    pub fn from_args(mut args: impl Iterator<Item = BulkString>) -> Result<Self, Error> {
+        let slot = args.next().ok_or(Error::MissingArgument)?;
+        let slots: Vec<BulkString> = args.collect();
+        Ok(Self { slot, slots })
+    }
+}
+
+impl From<AddSlots> for Vec<BulkString> {
+    fn from(cmd: AddSlots) -> Self {
+        let mut cmd_bs = vec!["ADDSLOTS".into(), cmd.slot];
+        cmd_bs.extend(cmd.slots);
+        cmd_bs
+    }
+}
+
+impl From<AddSlots> for ClusterCommand {
+    fn from(cmd: AddSlots) -> Self {
+        ClusterCommand::AddSlots(cmd)
+    }
+}
+
+impl fmt::Display for AddSlots {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CLUSTER ADDSLOTS {}", self.slot)?;
+
+        for slot in &self.slots {
+            write!(f, " {slot}")?;
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DelSlots {
+    slot: BulkString,
+    slots: Vec<BulkString>,
+}
+
+impl DelSlots {
+    pub fn from_args(mut args: impl Iterator<Item = BulkString>) -> Result<Self, Error> {
+        let slot = args.next().ok_or(Error::MissingArgument)?;
+        let slots: Vec<BulkString> = args.collect();
+        Ok(Self { slot, slots })
+    }
+}
+
+impl From<DelSlots> for Vec<BulkString> {
+    fn from(cmd: DelSlots) -> Self {
+        let mut cmd_bs = vec!["DELSLOTS".into(), cmd.slot];
+        cmd_bs.extend(cmd.slots);
+        cmd_bs
+    }
+}
+
+impl From<DelSlots> for ClusterCommand {
+    fn from(cmd: DelSlots) -> Self {
+        ClusterCommand::DelSlots(cmd)
+    }
+}
+
+impl fmt::Display for DelSlots {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CLUSTER DELSLOTS {}", self.slot)?;
+
+        for slot in &self.slots {
+            write!(f, " {slot}")?;
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct GetKeysInSlot {
+    pub slot: BulkString,
+    pub count: BulkString,
+}
+
+impl GetKeysInSlot {
+    pub fn from_args(mut args: impl Iterator<Item = BulkString>) -> Result<Self, Error> {
+        let slot = args.next().ok_or(Error::MissingArgument)?;
+        let count = args.next().ok_or(Error::MissingArgument)?;
+        Ok(Self { slot, count })
+    }
+}
+
+impl From<GetKeysInSlot> for Vec<BulkString> {
+    fn from(cmd: GetKeysInSlot) -> Self {
+        vec!["DELSLOTS".into(), cmd.slot, cmd.count]
+    }
+}
+
+impl From<GetKeysInSlot> for ClusterCommand {
+    fn from(cmd: GetKeysInSlot) -> Self {
+        ClusterCommand::GetKeysInSlot(cmd)
+    }
+}
+
+impl fmt::Display for GetKeysInSlot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CLUSTER GETKEYSINSLOT {} {}", self.slot, self.count)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SetSlot {
+    pub slot: BulkString,
+    pub subcommand: BulkString,
+    pub node_id: BulkString,
+}
+
+impl SetSlot {
+    pub fn from_args(mut args: impl Iterator<Item = BulkString>) -> Result<Self, Error> {
+        let slot = args.next().ok_or(Error::MissingArgument)?;
+        let subcommand = args.next().ok_or(Error::MissingArgument)?;
+        let node_id = args.next().ok_or(Error::MissingArgument)?;
+        Ok(Self {
+            slot,
+            subcommand,
+            node_id,
+        })
+    }
+}
+
+impl From<SetSlot> for Vec<BulkString> {
+    fn from(cmd: SetSlot) -> Self {
+        vec!["SETSLOT".into(), cmd.slot, cmd.subcommand, cmd.node_id]
+    }
+}
+
+impl From<SetSlot> for ClusterCommand {
+    fn from(cmd: SetSlot) -> Self {
+        ClusterCommand::SetSlot(cmd)
+    }
+}
+
+impl fmt::Display for SetSlot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "CLUSTER SETSLOT {} {} {}",
+            self.slot, self.subcommand, self.node_id
+        )
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Replicate {
+    pub node_id: BulkString,
+}
+
+impl Replicate {
+    pub fn from_args(mut args: impl Iterator<Item = BulkString>) -> Result<Self, Error> {
+        let node_id = args.next().ok_or(Error::MissingArgument)?;
+        Ok(Self { node_id })
+    }
+}
+
+impl From<Replicate> for Vec<BulkString> {
+    fn from(cmd: Replicate) -> Self {
+        vec!["REPLICATE".into(), cmd.node_id]
+    }
+}
+
+impl From<Replicate> for ClusterCommand {
+    fn from(cmd: Replicate) -> Self {
+        ClusterCommand::Replicate(cmd)
+    }
+}
+
+impl fmt::Display for Replicate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CLUSTER REPLICATE {}", self.node_id)
     }
 }
