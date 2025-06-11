@@ -51,6 +51,7 @@ pub struct ClusterState {
     myself: ClusterNode,
     config_epoch: u64,
     current_epoch: u64,
+    last_vote_epoch: u64, //no usmaos por ahora
     cluster_view: HashMap<NodeId, ClusterNode>,
     cluster_streams: HashMap<NodeId, TcpStream>,
     timeout_millis: u64,
@@ -58,6 +59,7 @@ pub struct ClusterState {
     replication_stream: Option<TcpStream>,
     storage_tx: Sender<StorageAction>,
     pub_sub_tx: Sender<PublishData>,
+    votes_received: usize, 
 }
 
 #[derive(Debug)]
@@ -105,6 +107,7 @@ impl ClusterState {
             },
             config_epoch: 0,
             current_epoch: 0,
+            last_vote_epoch: 0,
             cluster_view: HashMap::new(),
             cluster_streams: HashMap::new(),
             timeout_millis: 10000,
@@ -112,6 +115,7 @@ impl ClusterState {
             replication_stream: None,
             storage_tx,
             pub_sub_tx,
+            votes_received:0
         };
 
         let (actions_tx, actions_rx) = mpsc::channel();
@@ -268,13 +272,13 @@ impl ClusterState {
 
 
     fn handle_cluster_message(&mut self, msg: Message, log_tx: &Sender<Log>) {
-        log_tx
-            .send(log::debug!(
-                "recibido {} de nodo {}",
-                msg.data,
-                hex::encode(msg.header.id)
-            ))
-            .unwrap();
+        // log_tx
+        //     .send(log::debug!(
+        //         "recibido {} de nodo {}",
+        //         msg.data,
+        //         hex::encode(msg.header.id)
+        //     ))
+        //     .unwrap();
 
         match self.cluster_view.entry(msg.header.id) {
             Entry::Occupied(mut entry) => {
@@ -298,7 +302,15 @@ impl ClusterState {
             MessageData::Publish(data) => {
                 self.handle_publish(data);
             }
-            MessageData::FailOver(_) => self.handle_fail_over(&msg.header),
+            
+            //MessageData::FailOver(_) => self.handle_fail_over(&msg.header),
+            
+            MessageData::FailOver(FailOverData { kind: FailOverKind::AuthRequest }) => {
+                self.handle_fail_over_request(&msg.header, log_tx);
+            }
+            MessageData::FailOver(FailOverData { kind: FailOverKind::AuthAck }) => {
+                self.handle_fail_over_ack(&msg.header, log_tx);
+            }
             MessageData::Update(_data) => todo!(),
         }
     }
@@ -502,6 +514,7 @@ impl ClusterState {
 
     fn start_election(&mut self) {
         // todo suponemos por ahora que solo las replicas hacen esto
+        self.votes_received = 1;
 
         let master_id = self.myself.master_id.unwrap();
         let master = self.cluster_view.get(&master_id).unwrap();
@@ -524,6 +537,9 @@ impl ClusterState {
         for stream in self.cluster_streams.values_mut() {
             let _ = stream.write_all(&bytes);
         }
+
+        println!("eleccion iniciada, esperando votos...");
+
     }
 
     fn handle_fail_over(&mut self, header: &MessageHeader) {
@@ -546,5 +562,71 @@ impl ClusterState {
         };
 
         stream.write_all(&Vec::from(&msg)).unwrap();
+
     }
+
+    fn handle_fail_over_request(&mut self, header: &MessageHeader, log_tx: &Sender<Log>) {
+        //me pidieron votos, tengo que votar
+        println!("me pidieron votar");
+        //aca abria que chequiear si el q me pidio votos es replica posta y falla.. 
+        //esta en la fn de arriba
+
+            let stream = self.cluster_streams.get_mut(&header.id).unwrap();
+
+            let msg = Message {
+                header: MessageHeader::from(&self.myself),
+                data: MessageData::FailOver(FailOverData {
+                    kind: FailOverKind::AuthAck,
+                }),
+            };
+
+            stream.write_all(&Vec::from(&msg)).unwrap();
+
+        println!("vote");
+    }
+
+    fn handle_fail_over_ack(&mut self, header: &MessageHeader, log_tx: &Sender<Log>) {
+        println!("recibi un voto");
+        
+        self.votes_received += 1;
+
+        //
+        let n_masters = self
+            .cluster_view
+            .values()
+            .filter(|n| n.flags.contains(FLAG_MASTER))
+            .count() + 1; // <--- me sumas a ti mismo (a chequear pero creo q si)
+
+        let quorum = (n_masters / 2) + 1;
+
+        log_tx
+            .send(log::info!(
+                "Recibido voto de {} (total: {}/{})",
+                hex::encode(header.id),
+                self.votes_received,
+                quorum
+            ))
+            .unwrap();
+
+        // Si alcanzamos el quórum y aún no somos master, promovemos
+        if self.votes_received >= quorum && !self.myself.flags.contains(FLAG_MASTER) {
+            self.myself.flags.0 &= !FLAG_SLAVE;
+            self.myself.flags.0 |= FLAG_MASTER;
+
+            log_tx
+                .send(log::info!(
+                    "¡Quórum alcanzado! Nodo promovido a MASTER"
+                ))
+                .unwrap();
+        }
+    }
+
+    //LOGICA PARA NO VOTAR MAS DE UNA VEZ POR EPOCH !    
+        // let request_epoch = header.config_epoch;
+
+    // if request_epoch > self.last_vote_epoch {
+    //     self.last_vote_epoch = request_epoch;
+
+    //     }
+
 }
