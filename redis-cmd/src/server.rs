@@ -5,22 +5,22 @@ use redis_resp::BulkString;
 use crate::Error;
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum ManagementCommand {
+pub enum ServerCommand {
     Sync(Sync),
 }
 
-impl From<ManagementCommand> for Vec<BulkString> {
-    fn from(cmd: ManagementCommand) -> Self {
+impl From<ServerCommand> for Vec<BulkString> {
+    fn from(cmd: ServerCommand) -> Self {
         match cmd {
-            ManagementCommand::Sync(cmd) => cmd.into(),
+            ServerCommand::Sync(cmd) => cmd.into(),
         }
     }
 }
 
-impl fmt::Display for ManagementCommand {
+impl fmt::Display for ServerCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ManagementCommand::Sync(cmd) => write!(f, "{cmd}"),
+            ServerCommand::Sync(cmd) => write!(f, "{cmd}"),
         }
     }
 }
@@ -35,14 +35,14 @@ impl Sync {
 }
 
 impl From<Sync> for Vec<BulkString> {
-    fn from(cmd: Sync) -> Self {
+    fn from(_: Sync) -> Self {
         vec!["SYNC".into()]
     }
 }
 
-impl From<Sync> for ManagementCommand {
+impl From<Sync> for ServerCommand {
     fn from(cmd: Sync) -> Self {
-        ManagementCommand::Sync(cmd)
+        ServerCommand::Sync(cmd)
     }
 }
 

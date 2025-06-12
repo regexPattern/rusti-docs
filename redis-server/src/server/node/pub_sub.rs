@@ -6,7 +6,7 @@ use std::{
     net::TcpStream,
     sync::{
         Arc, Mutex,
-        mpsc::{self, Sender, Receiver},
+        mpsc::{self, Sender},
     },
     thread,
 };
@@ -18,8 +18,7 @@ use redis_cmd::{Command, pub_sub::*};
 use redis_resp::{Array, BulkString, Integer, RespDataType, SimpleError};
 use uuid::Uuid;
 
-use crate::server::node::cluster::ClusterAction;
-use crate::server::node::cluster::message::PublishData;
+use crate::server::node::cluster::{ClusterAction, message::payload::PublishPayload};
 
 type SubsRegister = HashMap<BulkString, HashMap<Uuid, Sender<Vec<u8>>>>;
 
@@ -36,7 +35,6 @@ pub struct PubSubEnvelope {
     pub cluster_tx: Sender<ClusterAction>,
 }
 
-
 #[derive(Debug)]
 struct Subscriber {
     id: Uuid,
@@ -45,7 +43,7 @@ struct Subscriber {
 }
 
 impl PubSubBroker {
-    pub fn start(logger_tx: Sender<Log>) -> (Sender<PubSubEnvelope>, Sender<PublishData>) {
+    pub fn start(logger_tx: Sender<Log>) -> (Sender<PubSubEnvelope>, Sender<PublishPayload>) {
         let (tx, rx) = mpsc::channel();
 
         let mut broker = Self {
@@ -53,17 +51,22 @@ impl PubSubBroker {
             logger_tx: logger_tx.clone(),
         };
 
-        let (cluster_pub_sub_tx, cluster_pub_rx) = mpsc::channel::<PublishData>();
-        
+        let (publish_tx, publish_rx) = mpsc::channel::<PublishPayload>();
+
         let reg = broker.reg.clone();
         let logger_tx_clone = logger_tx.clone();
         thread::spawn(move || {
-            for data in cluster_pub_rx {
-                PubSubBroker::publish_from_cluster(&data.channel, data.message, reg.clone(), logger_tx_clone.clone())
-                    .unwrap_or_else(|err| {
-                        logger_tx_clone.send(log::error!("{err}")).unwrap();
-                        Vec::new()
-                    });
+            for msg in publish_rx {
+                PubSubBroker::publish_from_cluster(
+                    &msg.channel,
+                    msg.message,
+                    reg.clone(),
+                    logger_tx_clone.clone(),
+                )
+                .unwrap_or_else(|err| {
+                    logger_tx_clone.send(log::error!("{err}")).unwrap();
+                    Vec::new()
+                });
             }
         });
 
@@ -76,7 +79,7 @@ impl PubSubBroker {
             }
         });
 
-        (tx, cluster_pub_sub_tx)
+        (tx, publish_tx)
     }
 
     pub fn process(&mut self, mut envel: PubSubEnvelope) -> Result<(), InternalError> {
@@ -274,7 +277,12 @@ impl PubSubBroker {
     }
 
     // https://redis.io/docs/latest/commands/publish
-    fn publish(&self, chan_name: &BulkString, msg: BulkString, cluster_tx: Sender<ClusterAction>) -> Result<Vec<u8>, InternalError> {
+    fn publish(
+        &self,
+        chan_name: &BulkString,
+        msg: BulkString,
+        cluster_tx: Sender<ClusterAction>,
+    ) -> Result<Vec<u8>, InternalError> {
         let state = self.reg.lock()?;
         let mut n_chan_subs = 0;
 
@@ -293,9 +301,11 @@ impl PubSubBroker {
         }
 
         cluster_tx
-            .send(ClusterAction::BroadCastPublish { channel: chan_name.clone(), message: msg.clone() })
+            .send(ClusterAction::BroadcastPublish {
+                channel: chan_name.clone(),
+                message: msg.clone(),
+            })
             .unwrap();
-
 
         self.logger_tx.send(log::info!(
             "publicados {} bytes al channel {chan_name}",
@@ -306,7 +316,12 @@ impl PubSubBroker {
     }
 
     // https://redis.io/docs/latest/commands/publish
-    fn publish_from_cluster(chan_name: &BulkString, msg: BulkString, reg: Arc<Mutex<SubsRegister>>, logger_tx: Sender<Log> ) -> Result<Vec<u8>, InternalError> {
+    fn publish_from_cluster(
+        chan_name: &BulkString,
+        msg: BulkString,
+        reg: Arc<Mutex<SubsRegister>>,
+        logger_tx: Sender<Log>,
+    ) -> Result<Vec<u8>, InternalError> {
         let state = reg.lock()?;
         let mut n_chan_subs = 0;
 

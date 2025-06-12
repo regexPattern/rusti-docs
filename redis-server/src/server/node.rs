@@ -16,18 +16,17 @@ pub use error::InternalError;
 use log::Log;
 use pub_sub::{PubSubBroker, PubSubEnvelope};
 use redis_cmd::Command;
-use redis_cmd::management::ManagementCommand;
-use redis_resp::SimpleError;
+use redis_cmd::connection::ConnectionCommand;
+use redis_cmd::server::ServerCommand;
+use redis_resp::{SimpleError, SimpleString};
 use storage::StorageActor;
 
 use crate::config::ClusterConfig;
-use crate::server::node::cluster::message::PublishData;
+use crate::server::node::cluster::message::payload::PublishPayload;
 use crate::server::node::replication::ReplicationAction;
 
-// use crate::server::node::pub_sub::PubSubAction;
-
 use crate::server::node::storage::StorageAction;
-use cluster::{ClusterAction, ClusterState};
+use cluster::{ClusterAction, ClusterActor};
 use replication::ReplicationActor;
 
 #[derive(Debug)]
@@ -36,13 +35,12 @@ pub struct Node {
     storage_tx: Sender<storage::StorageAction>,
     replication_tx: Sender<ReplicationAction>,
     cluster_tx: Option<Sender<ClusterAction>>,
+    pub_sub_tx: Sender<PublishPayload>,
     log_tx: Sender<Log>,
-    pub_sub_tx: Sender<PublishData>,
 }
 
 impl Node {
     pub fn start(append_file_path: PathBuf, log_tx: Sender<Log>) -> Result<Self, InternalError> {
-
         let (broker_tx, pub_sub_tx) = PubSubBroker::start(log_tx.clone());
 
         let (storage_tx, storage_rx) = mpsc::channel();
@@ -67,12 +65,15 @@ impl Node {
     }
 
     pub fn enable_cluster_mode(&mut self, config: ClusterConfig) -> Result<(), ()> {
-        let cluster_tx = ClusterState::start(config, self.storage_tx.clone(),
-        self.pub_sub_tx.clone(), self.log_tx.clone());
-        
+        let cluster_tx = ClusterActor::start(
+            config,
+            self.storage_tx.clone(),
+            self.pub_sub_tx.clone(),
+            self.log_tx.clone(),
+        );
+
         self.cluster_tx = Some(cluster_tx);
-        
-        
+
         Ok(())
     }
 
@@ -120,7 +121,10 @@ impl Node {
         match cmd {
             Command::Storage(cmd) => {
                 self.storage_tx
-                    .send(StorageAction::ClientCommand { cmd, client_tx })
+                    .send(StorageAction::ClientCommand {
+                        cmd,
+                        reply_tx: client_tx,
+                    })
                     .unwrap();
 
                 if let Ok(reply) = client_rx.recv() {
@@ -130,12 +134,15 @@ impl Node {
                 }
             }
             Command::PubSub(cmd) => {
-                self.broker_tx.send(PubSubEnvelope { client: client.try_clone().unwrap(), cmd, cluster_tx: self.cluster_tx.clone().unwrap() })?;
-
+                self.broker_tx.send(PubSubEnvelope {
+                    client: client.try_clone().unwrap(),
+                    cmd,
+                    cluster_tx: self.cluster_tx.clone().unwrap(),
+                })?;
             }
             Command::Cluster(cmd) => {
                 if let Some(cluster_tx) = &self.cluster_tx {
-                    cluster_tx.send(ClusterAction::ClientCommand { cmd, client_tx })?;
+                    cluster_tx.send(ClusterAction::ClientCmd { cmd, client_tx })?;
 
                     if let Ok(reply) = client_rx.recv() {
                         client
@@ -150,11 +157,23 @@ impl Node {
                         .unwrap();
                 }
             }
-            Command::Management(cmd) => match cmd {
-                ManagementCommand::Sync(_) => {
+            Command::Server(cmd) => match cmd {
+                ServerCommand::Sync(_) => {
                     self.replication_tx
-                        .send(ReplicationAction::SyncReplica { client })
+                        .send(ReplicationAction::SyncReplica { stream: client })
                         .unwrap();
+                }
+            },
+            Command::Connection(cmd) => match cmd {
+                ConnectionCommand::Auth(_cmd) => todo!(),
+                ConnectionCommand::Ping(cmd) => {
+                    if let Some(message) = cmd.message {
+                        client.write_all(&Vec::from(message)).unwrap();
+                    } else {
+                        client
+                            .write_all(&Vec::from(SimpleString::from("PONG")))
+                            .unwrap();
+                    }
                 }
             },
         };

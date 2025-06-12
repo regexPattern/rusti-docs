@@ -33,7 +33,7 @@ pub struct StorageActor {
 pub enum StorageAction {
     ClientCommand {
         cmd: StorageCommand,
-        client_tx: Sender<Vec<u8>>,
+        reply_tx: Sender<Vec<u8>>,
     },
     DumpHistory {
         history_tx: Sender<Vec<StorageCommand>>,
@@ -74,17 +74,16 @@ impl StorageActor {
                 history.len()
             ))?;
 
-            logger_tx.send(log::info!("reestablecido estado de la base de datos"))?;
+            logger_tx.send(log::info!("restablecido estado de la base de datos"))?;
         }
 
         {
-            let _logger_tx = logger_tx.clone();
             thread::spawn(move || {
                 for action in actions_rx {
                     match action {
-                        StorageAction::ClientCommand { cmd, client_tx } => {
+                        StorageAction::ClientCommand { cmd, reply_tx } => {
                             let reply = storage_actor.process_command(cmd).unwrap();
-                            let _ = client_tx.send(reply);
+                            let _ = reply_tx.send(reply);
                         }
                         StorageAction::DumpHistory { history_tx } => {
                             let mut file = OpenOptions::new()

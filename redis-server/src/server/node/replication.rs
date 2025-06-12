@@ -6,7 +6,10 @@ use std::{
 };
 
 use log::Log;
-use redis_cmd::Command;
+use redis_cmd::{
+    Command,
+    connection::{ConnectionCommand, Ping},
+};
 
 use crate::server::node::storage::StorageAction;
 
@@ -18,7 +21,7 @@ pub struct ReplicationActor {
 #[derive(Debug)]
 pub enum ReplicationAction {
     BroadcastCommand { bytes: Vec<u8> },
-    SyncReplica { client: TcpStream },
+    SyncReplica { stream: TcpStream },
 }
 
 impl ReplicationActor {
@@ -38,7 +41,9 @@ impl ReplicationActor {
                     ReplicationAction::BroadcastCommand { bytes } => {
                         replication_actor.broadcast_command(&bytes);
                     }
-                    ReplicationAction::SyncReplica { mut client } => {
+                    ReplicationAction::SyncReplica {
+                        stream: mut replication_stream,
+                    } => {
                         let (history_tx, history_rx) = mpsc::channel();
 
                         storage_tx
@@ -46,20 +51,28 @@ impl ReplicationActor {
                             .unwrap();
 
                         if let Ok(history) = history_rx.recv() {
-                            // TODO hacer un buffer de todos los comandos. el tema seria que el
-                            // storage actor va a tener que saber procesar un bulk de comandos,
-                            // pero al menos mejoramos la eficiencia del stream.
-
-                            for cmd in history {
-                                client.write_all(&Vec::from(Command::Storage(cmd))).unwrap();
+                            if history.is_empty() {
+                                replication_stream
+                                    .write_all(&Vec::from(Command::Connection(
+                                        ConnectionCommand::Ping(Ping { message: None }),
+                                    )))
+                                    .unwrap();
+                            } else {
+                                for cmd in history {
+                                    replication_stream
+                                        .write_all(&Vec::from(Command::Storage(cmd)))
+                                        .unwrap();
+                                }
                             }
 
                             log_tx
-                                .send(log::cinfo!("restaurado historial de comandos en replica"))
+                                .send(log::info!("replicado historial de comandos en replica"))
                                 .unwrap();
                         }
 
-                        replication_actor.replication_streams.push(client);
+                        replication_actor
+                            .replication_streams
+                            .push(replication_stream);
                     }
                 }
             }

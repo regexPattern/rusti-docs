@@ -1,53 +1,44 @@
-mod client;
+mod command;
+mod fail;
+mod failover;
 mod flags;
+mod gossip;
 pub mod message;
-mod node;
+mod publish;
 
 use std::{
     collections::{HashMap, hash_map::Entry},
-    io::{BufRead, BufReader, Write},
-    net::{SocketAddr, TcpListener, TcpStream},
+    fmt,
+    io::{BufRead, BufReader},
+    net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream},
     sync::mpsc::{self, Receiver, Sender},
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use log::Log;
-use node::ClusterNode;
 use rand::{
     Rng,
     seq::{IndexedRandom, IteratorRandom},
 };
 use redis_cmd::cluster::ClusterCommand;
+use redis_resp::BulkString;
 
-use redis_resp::{BulkString};
-
-use flags::{FLAG_MYSELF, Flags};
-use message::{Message, gossip::GossipNode, PublishData};
-
-use crate::{
-    config::ClusterConfig,
-    server::node::{
-        cluster::{
-            flags::{FLAG_FAIL, FLAG_MASTER, FLAG_PFAIL, FLAG_SLAVE},
-            message::{
-                MessageData, MessageHeader,
-                fail::FailData,
-                failover::{FailOverData, FailOverKind},
-                gossip::{GossipData, GossipKind},
-            },
-        },
-        storage::StorageAction,
-    },
+use fail::FailureReport;
+use flags::Flags;
+use message::{
+    Message, MessageHeader, MessagePayload,
+    payload::{GossipKind, GossipNode, GossipPayload, PublishPayload},
 };
 
-const CLUSTER_SLOTS: usize = 16384;
+use crate::{config::ClusterConfig, server::node::storage::StorageAction};
+
 const CLUSTER_GOSSIP_SHARE_FACTOR: f64 = 0.25;
 
 type NodeId = [u8; 20];
 
 #[derive(Debug)]
-pub struct ClusterState {
+pub struct ClusterActor {
     myself: ClusterNode,
     config_epoch: u64,
     current_epoch: u64,
@@ -55,55 +46,52 @@ pub struct ClusterState {
     cluster_view: HashMap<NodeId, ClusterNode>,
     cluster_streams: HashMap<NodeId, TcpStream>,
     timeout_millis: u64,
-    failure_reports: HashMap<NodeId, HashMap<NodeId, SystemTime>>,
+    failure_reports: HashMap<NodeId, HashMap<NodeId, FailureReport>>,
     replication_stream: Option<TcpStream>,
     storage_tx: Sender<StorageAction>,
-    pub_sub_tx: Sender<PublishData>,
-    votes_received: usize, 
+    pub_sub_tx: Sender<PublishPayload>,
 }
 
 #[derive(Debug)]
 pub enum ClusterAction {
-    ClientCommand {
+    ClientCmd {
         cmd: ClusterCommand,
         client_tx: Sender<Vec<u8>>,
     },
-    ClusterMessage {
-        msg: Message,
-    },
-    Ping,
+    ClusterMsg(Message),
+    TickPing,
     CheckFailures,
     ConfirmFailure {
         id: NodeId,
     },
-    BroadCastPublish{
+    BroadcastPublish {
         channel: BulkString,
         message: BulkString,
-    }
+    },
 }
 
-impl ClusterState {
+impl ClusterActor {
     pub fn start(
         config: ClusterConfig,
         storage_tx: Sender<StorageAction>,
-        pub_sub_tx: Sender<PublishData>,
+        pub_sub_tx: Sender<PublishPayload>,
         log_tx: Sender<Log>,
     ) -> Sender<ClusterAction> {
         let mut id = [0_u8; 20];
         rand::rng().fill(&mut id);
 
-        let state = ClusterState {
+        let cluster_actor = ClusterActor {
             myself: ClusterNode {
                 id,
                 ip: config.bind,
                 port: config.port,
                 cluster_port: config.cluster_port,
-                flags: Flags(FLAG_MYSELF | FLAG_MASTER),
+                flags: Flags(flags::FLAG_MYSELF | flags::FLAG_MASTER),
                 ping_sent: UNIX_EPOCH,
                 pong_received: UNIX_EPOCH,
                 config_epoch: 0,
+                slots: (0, 0),
                 master_id: None,
-                slots: [0; CLUSTER_SLOTS / 8],
             },
             config_epoch: 0,
             current_epoch: 0,
@@ -115,7 +103,6 @@ impl ClusterState {
             replication_stream: None,
             storage_tx,
             pub_sub_tx,
-            votes_received:0
         };
 
         let (actions_tx, actions_rx) = mpsc::channel();
@@ -123,51 +110,89 @@ impl ClusterState {
         log_tx
             .send(log::info!(
                 "iniciando nodo {}",
-                hex::encode(state.myself.id)
+                hex::encode(cluster_actor.myself.id)
             ))
             .unwrap();
 
-        let addr = SocketAddr::new(state.myself.ip.into(), state.myself.cluster_port);
+        let addr = SocketAddr::new(
+            cluster_actor.myself.ip.into(),
+            cluster_actor.myself.cluster_port,
+        );
+
+        Self::start_cluster_server(addr, actions_tx.clone(), &log_tx);
+        Self::start_ping_tick_loop(Duration::from_millis(1000), actions_tx.clone(), &log_tx);
+
+        Self::start_failure_check_loop(
+            Duration::from_millis(cluster_actor.timeout_millis / 2),
+            actions_tx.clone(),
+            &log_tx,
+        );
+
+        cluster_actor.start_handling_actions(actions_tx.clone(), actions_rx, log_tx);
+
+        actions_tx
+    }
+
+    fn start_cluster_server(
+        addr: SocketAddr,
+        actions_tx: Sender<ClusterAction>,
+        log_tx: &Sender<Log>,
+    ) {
         let listener = TcpListener::bind(addr).unwrap();
+        thread::spawn(move || Self::listen_cluster(listener, actions_tx));
 
         log_tx
             .send(log::info!("servidor escuchando cluster en {addr:?}"))
             .unwrap();
+    }
 
-        {
-            let actions_tx = actions_tx.clone();
-            thread::spawn(move || Self::listen_cluster(listener, actions_tx));
-        }
+    fn start_ping_tick_loop(
+        interval: Duration,
+        actions_tx: Sender<ClusterAction>,
+        log_tx: &Sender<Log>,
+    ) {
+        thread::spawn(move || {
+            loop {
+                thread::sleep(interval);
+                actions_tx.send(ClusterAction::TickPing).unwrap();
+            }
+        });
 
-        {
-            let actions_tx = actions_tx.clone();
-            thread::spawn(move || {
-                let interval = Duration::from_millis((state.timeout_millis / 2) / 3);
-                loop {
-                    thread::sleep(interval);
-                    actions_tx.send(ClusterAction::Ping).unwrap();
-                }
-            });
-        }
+        log_tx
+            .send(log::info!(
+                "iniciado bucle de ping al cluster cada {} milisegundos",
+                interval.as_millis(),
+            ))
+            .unwrap();
+    }
 
-        {
-            let actions_tx = actions_tx.clone();
-            thread::spawn(move || {
-                let interval = Duration::from_millis(state.timeout_millis / 2);
-                loop {
-                    thread::sleep(interval);
-                    actions_tx.send(ClusterAction::CheckFailures).unwrap();
-                }
-            });
-        }
+    fn start_failure_check_loop(
+        interval: Duration,
+        actions_tx: Sender<ClusterAction>,
+        log_tx: &Sender<Log>,
+    ) {
+        thread::spawn(move || {
+            loop {
+                thread::sleep(interval);
+                actions_tx.send(ClusterAction::CheckFailures).unwrap();
+            }
+        });
 
-        {
-            let actions_tx = actions_tx.clone();
-            let log_tx = log_tx.clone();
-            thread::spawn(move || state.handle_actions(actions_tx, actions_rx, log_tx));
-        }
+        log_tx
+            .send(log::info!(
+                "iniciado bucle de checkeo de failures cada {} milisegundos",
+                interval.as_millis(),
+            ))
+            .unwrap();
+    }
 
-        actions_tx
+    fn start_handling_actions(
+        self,
+        actions_tx: Sender<ClusterAction>,
+        actions_rx: Receiver<ClusterAction>,
+        log_tx: Sender<Log>,
+    ) {
+        thread::spawn(move || self.handle_actions(actions_tx, actions_rx, log_tx));
     }
 
     fn listen_cluster(listener: TcpListener, actions_tx: Sender<ClusterAction>) {
@@ -180,20 +205,18 @@ impl ClusterState {
 
                 loop {
                     match reader.fill_buf() {
-                        Ok(bytes) if !bytes.is_empty() => {
-                            let msg = Message::from(bytes);
-
-                            let length = bytes.len();
-                            reader.consume(length);
+                        Ok(bytes) if bytes.len() >= std::mem::size_of::<usize>() => {
+                            let (msg, consumed) = Message::from(bytes);
+                            reader.consume(consumed);
 
                             let mut drop_stream = false;
-                            if let MessageData::Gossip(GossipData { kind, nodes: _ }) = &msg.data {
+                            if let MessagePayload::Gossip(GossipPayload { kind, nodes: _ }) =
+                                &msg.payload
+                            {
                                 drop_stream = *kind == GossipKind::Meet;
                             }
 
-                            actions_tx
-                                .send(ClusterAction::ClusterMessage { msg })
-                                .unwrap();
+                            actions_tx.send(ClusterAction::ClusterMsg(msg)).unwrap();
 
                             if drop_stream {
                                 return;
@@ -215,13 +238,28 @@ impl ClusterState {
     ) {
         for action in actions_rx {
             match action {
-                ClusterAction::ClientCommand { cmd, client_tx } => {
-                    self.process_command(cmd, client_tx, &log_tx)
+                ClusterAction::ClientCmd { cmd, client_tx } => {
+                    self.handle_cmd(cmd, client_tx, &log_tx)
                 }
-                ClusterAction::ClusterMessage { msg } => {
-                    self.handle_cluster_message(msg, &log_tx);
+                ClusterAction::ClusterMsg(msg) => {
+                    self.handle_incoming_message(msg, &log_tx);
                 }
-                ClusterAction::Ping => {
+                ClusterAction::TickPing => {
+                    let now = SystemTime::now();
+                    let prioritized_nodes: Vec<_> = self
+                        .cluster_view
+                        .values()
+                        .filter(|n| {
+                            now.duration_since(n.pong_received).unwrap()
+                                > Duration::from_millis(self.timeout_millis)
+                        })
+                        .map(GossipNode::from)
+                        .collect();
+
+                    for node in &prioritized_nodes {
+                        self.ping(node);
+                    }
+
                     let random_nodes = self.select_random_nodes();
                     if let Some(node) = random_nodes.choose(&mut rand::rng()) {
                         self.ping(node);
@@ -230,208 +268,79 @@ impl ClusterState {
                 ClusterAction::CheckFailures => {
                     self.check_failures(&actions_tx, &log_tx);
                 }
-                ClusterAction::BroadCastPublish { channel, message } => {
-                    self.broadcast_pub_sub(channel, message, &actions_tx, &log_tx);
+                ClusterAction::BroadcastPublish { channel, message } => {
+                    self.broadcast_publish(channel, message, &actions_tx, &log_tx);
                 }
-                ClusterAction::ConfirmFailure { id } => self.fail(id),
-
+                ClusterAction::ConfirmFailure { id } => self.confirm_failure(id, &log_tx),
             }
         }
     }
 
-    fn broadcast_pub_sub(
-        &mut self,
-        channel: BulkString,
-        message: BulkString,
-        _actions_tx: &Sender<ClusterAction>,
-        log_tx: &Sender<Log>,
-    ) {
-        use crate::server::node::cluster::message::{
-            Message, MessageHeader, MessageData, publish::PublishData,
-        };
+    fn handle_incoming_message(&mut self, msg: Message, log_tx: &Sender<Log>) {
+        log_tx
+            .send(log::gossip!(
+                "recibido {} de nodo {}",
+                msg.payload,
+                hex::encode(msg.header.id)
+            ))
+            .unwrap();
 
-        let msg = Message {
-            header: MessageHeader::from(&self.myself),
-            data: MessageData::Publish(PublishData { channel, message }),
-        };
-        let bytes = Vec::from(&msg);
+        self.add_message_sender_to_cluster_view(&msg.header, log_tx);
 
-        for (node_id, stream) in self.cluster_streams.iter_mut() {
-            if *node_id == self.myself.id {
-                continue;
+        match msg.payload {
+            MessagePayload::Gossip(payload) => {
+                self.handle_gossip_message(&msg.header, payload, log_tx)
             }
-            if let Err(e) = stream.write_all(&bytes) {
-                let _ = log_tx.send(log::warn!(
-                    "Error enviando publish a nodo {}: {}",
-                    hex::encode(node_id),
-                    e
-                ));
+            MessagePayload::Fail(payload) => self.handle_fail_msg(payload, log_tx),
+            MessagePayload::Publish(payload) => {
+                self.handle_publish_msg(payload);
             }
+            MessagePayload::FailOver(payload) => {
+                self.handle_failover_message(payload, &msg.header, log_tx)
+            }
+            MessagePayload::Update(_payload) => todo!(),
         }
     }
 
-
-    fn handle_cluster_message(&mut self, msg: Message, log_tx: &Sender<Log>) {
-        // log_tx
-        //     .send(log::debug!(
-        //         "recibido {} de nodo {}",
-        //         msg.data,
-        //         hex::encode(msg.header.id)
-        //     ))
-        //     .unwrap();
-
-        match self.cluster_view.entry(msg.header.id) {
+    fn add_message_sender_to_cluster_view(&mut self, header: &MessageHeader, log_tx: &Sender<Log>) {
+        match self.cluster_view.entry(header.id) {
             Entry::Occupied(mut entry) => {
+                // TODO realmente solo deberiamos hacer esto si el otro tiene mayor config epoch.
                 let known_node = entry.get_mut();
-                known_node.ip = msg.header.ip;
-                known_node.port = msg.header.port;
-                known_node.cluster_port = msg.header.cluster_port;
-                known_node.flags = msg.header.flags;
-                known_node.config_epoch = msg.header.config_epoch;
-                known_node.slots = msg.header.slots;
-                known_node.master_id = msg.header.master_id;
-            }
-            Entry::Vacant(entry) => {
-                entry.insert(ClusterNode::from(&msg.header));
-            }
-        };
 
-        match msg.data {
-            MessageData::Gossip(data) => self.handle_gossip_message(&msg.header, data, log_tx),
-            MessageData::Fail(data) => self.handle_fail_message(data),
-            MessageData::Publish(data) => {
-                self.handle_publish(data);
-            }
-            
-            //MessageData::FailOver(_) => self.handle_fail_over(&msg.header),
-            
-            MessageData::FailOver(FailOverData { kind: FailOverKind::AuthRequest }) => {
-                self.handle_fail_over_request(&msg.header, log_tx);
-            }
-            MessageData::FailOver(FailOverData { kind: FailOverKind::AuthAck }) => {
-                self.handle_fail_over_ack(&msg.header, log_tx);
-            }
-            MessageData::Update(_data) => todo!(),
-        }
-    }
-
-    fn handle_publish(&mut self, data: PublishData) {
-        self.pub_sub_tx.send(data);
-    }
-
-    fn handle_gossip_message(
-        &mut self,
-        header: &MessageHeader,
-        data: GossipData,
-        log_tx: &Sender<Log>,
-    ) {
-        for gossip_node in data.nodes {
-            if gossip_node.id == self.myself.id {
-                continue;
-            }
-
-            match self.cluster_view.entry(gossip_node.id) {
-                Entry::Occupied(mut entry) => {
-                    let known_node = entry.get_mut();
-                    // TODO realmente deberiamos actualizar solo con los epochs
-                    if known_node.flags != gossip_node.flags {
-                        known_node.ip = gossip_node.ip;
-                        known_node.port = gossip_node.port;
-                        known_node.cluster_port = gossip_node.cluster_port;
-
-                        log_tx
-                            .send(log::debug!(
-                                "actualizada informacion de nodo {}",
-                                hex::encode(gossip_node.id),
-                            ))
-                            .unwrap();
-                    }
-                }
-                Entry::Vacant(entry) => {
+                if known_node.flags.contains(flags::FLAG_PFAIL)
+                    && !header.flags.contains(flags::FLAG_PFAIL)
+                    && !header.flags.contains(flags::FLAG_FAIL)
+                {
                     log_tx
                         .send(log::info!(
-                            "conocido al nodo {} mediante gossip",
-                            hex::encode(gossip_node.id),
+                            "removido PFAIL de nodo {}",
+                            hex::encode(known_node.id)
                         ))
                         .unwrap();
-                    entry.insert(ClusterNode::from(&gossip_node));
                 }
-            };
 
-            let sender_is_master = self
-                .cluster_view
-                .get(&header.id)
-                .and_then(|n| Some(n.flags.contains(FLAG_MASTER)))
-                .is_some();
+                known_node.flags = header.flags;
 
-            if gossip_node.flags.contains(FLAG_PFAIL) && sender_is_master {
-                let reports = self.failure_reports.entry(gossip_node.id).or_default();
-                reports.insert(header.id, SystemTime::now());
+                known_node.config_epoch = header.config_epoch;
+                known_node.slots = header.slots;
+                known_node.master_id = header.master_id;
             }
-        }
-
-        if data.kind == GossipKind::Ping {
-            self.pong(header);
-        } else if data.kind == GossipKind::Pong {
-            let node = self.cluster_view.get_mut(&header.id).unwrap();
-            node.pong_received = SystemTime::now();
-        }
-    }
-
-    fn ping(&mut self, node: &GossipNode) {
-        let msg = Message {
-            header: MessageHeader::from(&self.myself),
-            data: MessageData::Gossip(GossipData {
-                kind: GossipKind::Ping,
-                nodes: self.select_random_nodes(),
-            }),
+            Entry::Vacant(entry) => {
+                entry.insert(ClusterNode {
+                    id: header.id,
+                    ip: header.ip,
+                    port: header.port,
+                    cluster_port: header.cluster_port,
+                    flags: header.flags,
+                    ping_sent: UNIX_EPOCH,
+                    pong_received: UNIX_EPOCH,
+                    config_epoch: 0,
+                    slots: header.slots,
+                    master_id: header.master_id,
+                });
+            }
         };
-
-        let stream = self.cluster_streams.entry(node.id).or_insert_with(|| {
-            TcpStream::connect(SocketAddr::new(node.ip.into(), node.cluster_port)).unwrap()
-        });
-
-        let node = self.cluster_view.get_mut(&node.id).unwrap();
-        node.ping_sent = SystemTime::now();
-
-        let _ = stream.write_all(&Vec::from(&msg));
-    }
-
-    fn pong(&mut self, header: &MessageHeader) {
-        let msg = Message {
-            header: MessageHeader::from(&self.myself),
-            data: MessageData::Gossip(GossipData {
-                kind: GossipKind::Pong,
-                nodes: self.select_random_nodes(),
-            }),
-        };
-
-        let stream = self.cluster_streams.entry(header.id).or_insert_with(|| {
-            TcpStream::connect(SocketAddr::new(header.ip.into(), header.cluster_port)).unwrap()
-        });
-
-        let _ = stream.write_all(&Vec::from(&msg));
-    }
-
-    fn fail(&mut self, id: NodeId) {
-        let msg = Message {
-            header: MessageHeader::from(&self.myself),
-            data: MessageData::Fail(FailData { id }),
-        };
-
-        for stream in self.cluster_streams.values_mut() {
-            let _ = stream.write_all(&Vec::from(&msg));
-        }
-    }
-
-    fn handle_fail_message(&mut self, data: FailData) {
-        let node = self.cluster_view.get_mut(&data.id).unwrap();
-        node.flags.0 |= FLAG_FAIL;
-        node.flags.0 &= !FLAG_PFAIL;
-
-        if Some(node.id) == self.myself.master_id {
-            self.start_election();
-        }
     }
 
     fn select_random_nodes(&self) -> Vec<GossipNode> {
@@ -443,182 +352,183 @@ impl ClusterState {
             .map(GossipNode::from)
             .choose_multiple(&mut rand::rng(), n)
     }
+}
 
-    fn check_failures(&mut self, actions_tx: &Sender<ClusterAction>, log_tx: &Sender<Log>) {
-        let now = SystemTime::now();
+#[derive(PartialEq)]
+pub struct ClusterNode {
+    pub id: NodeId,
+    pub ip: Ipv4Addr,
+    pub port: u16,
+    pub cluster_port: u16,
+    pub flags: Flags,
+    pub ping_sent: SystemTime,
+    pub pong_received: SystemTime,
+    pub config_epoch: u64,
+    pub slots: (u16, u16),
+    pub master_id: Option<NodeId>,
+}
 
-        for node in self.cluster_view.values_mut() {
-            if now.duration_since(node.pong_received).unwrap()
-                > Duration::from_millis(self.timeout_millis)
-                && !node.flags.contains(FLAG_FAIL)
-            {
-                node.flags.0 |= FLAG_PFAIL;
+impl From<&ClusterConfig> for ClusterNode {
+    fn from(config: &ClusterConfig) -> Self {
+        let mut id = [0_u8; 20];
+        rand::rng().fill(&mut id);
 
-                log_tx
-                    .send(log::warn!(
-                        "nodo {} marcado como PFAIL",
-                        hex::encode(node.id)
-                    ))
-                    .unwrap();
-            }
-        }
-
-        let n_known_masters = self
-            .cluster_view
-            .values()
-            .filter(|n| n.flags.contains(FLAG_MASTER))
-            .count();
-
-        for (id, reports) in &mut self.failure_reports {
-            if self.cluster_view.get(id).unwrap().flags.contains(FLAG_FAIL) {
-                continue;
-            };
-
-            reports.retain(|_, t| {
-                now.duration_since(*t).unwrap() < Duration::from_millis(self.timeout_millis * 2)
-            });
-
-            let lo_tengo_pfail = if self
-                .cluster_view
-                .get(id)
-                .unwrap()
-                .flags
-                .contains(FLAG_PFAIL)
-            {
-                1
-            } else {
-                0
-            };
-
-            let soy_master = if self.myself.flags.contains(FLAG_MASTER) {
-                1
-            } else {
-                0
-            };
-
-            if (reports.len() + lo_tengo_pfail) as f64
-                >= (((n_known_masters + soy_master) / 2 + 1) as f64).floor()
-            {
-                actions_tx
-                    .send(ClusterAction::ConfirmFailure { id: *id })
-                    .unwrap();
-
-                let node = self.cluster_view.get_mut(id).unwrap();
-                node.flags.0 |= FLAG_FAIL;
-                node.flags.0 &= !FLAG_PFAIL;
-
-                reports.clear();
-            }
+        Self {
+            id,
+            ip: config.bind,
+            port: config.port,
+            cluster_port: config.cluster_port,
+            flags: Flags(flags::FLAG_MASTER),
+            ping_sent: UNIX_EPOCH,
+            pong_received: UNIX_EPOCH,
+            config_epoch: 0,
+            slots: (0, 0),
+            master_id: None,
         }
     }
+}
 
-    fn start_election(&mut self) {
-        // todo suponemos por ahora que solo las replicas hacen esto
-        self.votes_received = 1;
+impl fmt::Display for ClusterNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            id,
+            ip,
+            port,
+            cluster_port,
+            flags,
+            ping_sent,
+            pong_received,
+            config_epoch,
+            slots,
+            master_id,
+        } = self;
 
-        let master_id = self.myself.master_id.unwrap();
-        let master = self.cluster_view.get(&master_id).unwrap();
+        let id = hex::encode(id);
+        let addr = format!("{}:{}@{}", ip.to_string(), port, cluster_port);
+        let master = master_id
+            .map(|id| hex::encode(id))
+            .unwrap_or("-".to_string());
 
-        if !master.flags.contains(FLAG_FAIL) {
-            return;
-        }
+        let ping_sent = ping_sent.duration_since(UNIX_EPOCH).unwrap().as_millis();
 
-        self.current_epoch += 1;
+        let pong_received = pong_received
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
 
-        let msg = Message {
-            header: MessageHeader::from(&self.myself),
-            data: MessageData::FailOver(FailOverData {
-                kind: FailOverKind::AuthRequest,
-            }),
+        let slots = if *slots == (0, 0) {
+            "".to_string()
+        } else {
+            format!("{}-{}", slots.0, slots.1)
         };
 
-        let bytes = Vec::from(&msg);
+        write!(
+            f,
+            "{id} {addr} {flags} {master} {ping_sent} {pong_received} {config_epoch} {slots}"
+        )
+    }
+}
 
-        for stream in self.cluster_streams.values_mut() {
-            let _ = stream.write_all(&bytes);
+impl fmt::Debug for ClusterNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::Ipv4Addr;
+
+    use super::*;
+
+    pub fn dummy_empty_cluster_actor() -> ClusterActor {
+        let cluster_config = ClusterConfig::default(Ipv4Addr::new(127, 0, 0, 1), 6379);
+
+        let (storage_tx, _) = mpsc::channel();
+        let (pub_sub_tx, _) = mpsc::channel();
+        let myself = ClusterNode::from(&cluster_config);
+
+        ClusterActor {
+            myself,
+            config_epoch: 0,
+            current_epoch: 0,
+            cluster_view: HashMap::new(),
+            cluster_streams: HashMap::new(),
+            timeout_millis: cluster_config.node_timeout as u64,
+            failure_reports: HashMap::new(),
+            replication_stream: None,
+            storage_tx,
+            pub_sub_tx,
         }
-
-        println!("eleccion iniciada, esperando votos...");
-
     }
 
-    fn handle_fail_over(&mut self, header: &MessageHeader) {
-        // el nodo que me mando esto va a ser una replica.
+    #[test]
+    fn sender_de_un_msg_se_agrega_a_la_cluster_view() {
+        let mut cluster_actor = dummy_empty_cluster_actor();
 
-        if !self.myself.flags.contains(FLAG_MASTER) {
-            self.myself.flags.0 &= !FLAG_SLAVE;
-            self.myself.flags.0 |= FLAG_MASTER;
+        assert!(cluster_actor.cluster_view.is_empty());
 
-            return;
-        }
+        let mut id = [0_u8; 20];
+        hex::decode_to_slice("c7e10a92b34f5d861e05c9f7a8d3b2640e1f5a7d", &mut id).unwrap();
 
-        let stream = self.cluster_streams.get_mut(&header.id).unwrap();
-
-        let msg = Message {
-            header: MessageHeader::from(&self.myself),
-            data: MessageData::FailOver(FailOverData {
-                kind: FailOverKind::AuthAck,
-            }),
+        let header = MessageHeader {
+            id,
+            ip: Ipv4Addr::new(127, 0, 0, 1),
+            port: 7000,
+            cluster_port: 17000,
+            flags: Flags(flags::FLAG_MYSELF | flags::FLAG_MASTER),
+            config_epoch: 0,
+            slots: (0, 0),
+            master_id: None,
         };
 
-        stream.write_all(&Vec::from(&msg)).unwrap();
+        let (log_tx, _log_rx) = mpsc::channel();
 
+        cluster_actor.add_message_sender_to_cluster_view(&header, &log_tx);
+
+        assert_eq!(
+            cluster_actor.cluster_view.get(&header.id).unwrap(),
+            &ClusterNode::from(&header)
+        );
     }
 
-    fn handle_fail_over_request(&mut self, header: &MessageHeader, log_tx: &Sender<Log>) {
-        //me pidieron votos, tengo que votar
-        println!("me pidieron votar");
-        //aca abria que chequiear si el q me pidio votos es replica posta y falla.. 
-        //esta en la fn de arriba
+    #[test]
+    fn sender_de_un_msg_que_ya_estaba_en_cluster_view_se_actualiza() {
+        let mut cluster_actor = dummy_empty_cluster_actor();
 
-            let stream = self.cluster_streams.get_mut(&header.id).unwrap();
+        let mut id = [0_u8; 20];
+        hex::decode_to_slice("c7e10a92b34f5d861e05c9f7a8d3b2640e1f5a7d", &mut id).unwrap();
 
-            let msg = Message {
-                header: MessageHeader::from(&self.myself),
-                data: MessageData::FailOver(FailOverData {
-                    kind: FailOverKind::AuthAck,
-                }),
-            };
+        let mut header = MessageHeader {
+            id,
+            ip: Ipv4Addr::new(127, 0, 0, 1),
+            port: 7000,
+            cluster_port: 17000,
+            flags: Flags(flags::FLAG_MYSELF | flags::FLAG_MASTER),
+            config_epoch: 0,
+            slots: (0, 0),
+            master_id: None,
+        };
 
-            stream.write_all(&Vec::from(&msg)).unwrap();
+        let (log_tx, _log_rx) = mpsc::channel();
 
-        println!("vote");
-    }
+        cluster_actor.add_message_sender_to_cluster_view(&header, &log_tx);
 
-    fn handle_fail_over_ack(&mut self, header: &MessageHeader, log_tx: &Sender<Log>) {
-        println!("recibi un voto");
-        
-        self.votes_received += 1;
+        let mut master_id = [0_u8; 20];
+        hex::decode_to_slice("73f0b8a1e9c4d5270618fa3c5bde6792401f8a7c", &mut master_id).unwrap();
 
-        //
-        let n_masters = self
-            .cluster_view
-            .values()
-            .filter(|n| n.flags.contains(FLAG_MASTER))
-            .count() + 1; // <--- me sumas a ti mismo (a chequear pero creo q si)
+        header.flags.0 &= !flags::FLAG_MASTER;
+        header.flags.0 |= flags::FLAG_SLAVE;
+        header.master_id = Some(master_id);
 
-        let quorum = (n_masters / 2) + 1;
+        let (log_tx, _log_rx) = mpsc::channel();
 
-        log_tx
-            .send(log::info!(
-                "Recibido voto de {} (total: {}/{})",
-                hex::encode(header.id),
-                self.votes_received,
-                quorum
-            ))
-            .unwrap();
+        cluster_actor.add_message_sender_to_cluster_view(&header, &log_tx);
 
-        // Si alcanzamos el quórum y aún no somos master, promovemos
-        if self.votes_received >= quorum && !self.myself.flags.contains(FLAG_MASTER) {
-            self.myself.flags.0 &= !FLAG_SLAVE;
-            self.myself.flags.0 |= FLAG_MASTER;
-
-            log_tx
-                .send(log::info!(
-                    "¡Quórum alcanzado! Nodo promovido a MASTER"
-                ))
-                .unwrap();
-        }
+        assert_eq!(
+            cluster_actor.cluster_view.get(&header.id).unwrap(),
+            &ClusterNode::from(&header)
+        );
     }
 
     //LOGICA PARA NO VOTAR MAS DE UNA VEZ POR EPOCH !    

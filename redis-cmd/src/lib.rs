@@ -1,17 +1,17 @@
-#![allow(unused_variables)]
-
 pub mod cluster;
+pub mod connection;
 mod error;
-pub mod management;
 pub mod pub_sub;
+pub mod server;
 pub mod storage;
 
 use std::fmt;
 
 use cluster::*;
+use connection::*;
 pub use error::Error;
-use management::*;
 use pub_sub::*;
+use server::*;
 use storage::*;
 
 use redis_resp::{Array, RespDataType};
@@ -21,7 +21,8 @@ pub enum Command {
     Storage(StorageCommand),
     PubSub(PubSubCommand),
     Cluster(ClusterCommand),
-    Management(ManagementCommand),
+    Server(ServerCommand),
+    Connection(ConnectionCommand),
 }
 
 impl TryFrom<&[u8]> for Command {
@@ -92,10 +93,11 @@ impl TryFrom<Array> for Command {
                     "NODES" => Self::Cluster(Nodes::from_args(args)?.into()),
                     "SHARDS" => Self::Cluster(Shards::from_args(args)?.into()),
                     "ADDSLOTS" => Self::Cluster(AddSlots::from_args(args)?.into()),
-                    "DELSLOTS" => Self::Cluster(DelSlots::from_args(args)?.into()),
-                    "GETKEYSINSLOT" => Self::Cluster(GetKeysInSlot::from_args(args)?.into()),
-                    "SETSLOT" => Self::Cluster(SetSlot::from_args(args)?.into()),
+                    "ADDSLOTSRANGE" => Self::Cluster(AddSlotsRange::from_args(args)?.into()),
                     "REPLICATE" => Self::Cluster(Replicate::from_args(args)?.into()),
+                    "MYID" => Self::Cluster(MyId::from_args(args)?.into()),
+                    "SET-CONFIG-EPOCH" => Self::Cluster(SetConfigEpoch::from_args(args)?.into()),
+                    "SAVECONFIG" => Self::Cluster(SaveConfig::from_args(args)?.into()),
                     _ => return Err(Error::CommandNotSupported),
                 }
             }
@@ -113,7 +115,10 @@ impl TryFrom<Array> for Command {
                 }
             }
 
-            "SYNC" => Self::Management(Sync::from_args(args)?.into()),
+            "SYNC" => Self::Server(Sync::from_args(args)?.into()),
+
+            "AUTH" => Self::Connection(Auth::from_args(args)?.into()),
+            "PING" => Self::Connection(Ping::from_args(args)?.into()),
 
             _ => return Err(Error::CommandNotSupported),
         };
@@ -127,8 +132,9 @@ impl From<Command> for Vec<u8> {
         let cmd_bs: Vec<_> = match cmd {
             Command::Storage(cmd) => cmd.into(),
             Command::PubSub(cmd) => cmd.into(),
-            Command::Cluster(cmd) => todo!("serializar comandos de cluster para los clientes"),
-            Command::Management(cmd) => cmd.into(),
+            Command::Server(cmd) => cmd.into(),
+            Command::Connection(cmd) => cmd.into(),
+            Command::Cluster(_) => unimplemented!(),
         };
 
         let cmd_dt: Vec<_> = cmd_bs.into_iter().map(RespDataType::from).collect();
@@ -161,7 +167,8 @@ impl fmt::Display for Command {
             Command::Storage(cmd) => write!(f, "{cmd}"),
             Command::PubSub(cmd) => write!(f, "{cmd}"),
             Command::Cluster(cmd) => write!(f, "{cmd}"),
-            Command::Management(cmd) => write!(f, "{cmd}"),
+            Command::Server(cmd) => write!(f, "{cmd}"),
+            Command::Connection(cmd) => write!(f, "{cmd}"),
         }
     }
 }

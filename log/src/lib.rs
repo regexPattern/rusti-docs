@@ -14,8 +14,7 @@ pub struct Log {
 
 #[derive(Debug, PartialEq)]
 pub enum LogLevel {
-    ClusterDebug,
-    ClusterInfo,
+    Gossip,
     Debug,
     Error,
     Info,
@@ -26,13 +25,23 @@ pub type Error = SendError<Log>;
 
 impl fmt::Display for Log {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let heartbeat_on = *DEBUG_ENABLED.get_or_init(|| {
+            std::env::var("LOG_LEVEL")
+                .map(|v| v.eq_ignore_ascii_case("GOSSIP"))
+                .unwrap_or(false)
+        });
+
+        if (self.level == LogLevel::Gossip) && !heartbeat_on {
+            return Ok(());
+        }
+
         let debug_on = *DEBUG_ENABLED.get_or_init(|| {
             std::env::var("LOG_LEVEL")
                 .map(|v| v.eq_ignore_ascii_case("DEBUG"))
                 .unwrap_or(false)
-        });
+        }) || heartbeat_on;
 
-        if (self.level == LogLevel::Debug || self.level == LogLevel::ClusterDebug) && !debug_on {
+        if (self.level == LogLevel::Debug) && !debug_on {
             return Ok(());
         }
 
@@ -40,8 +49,7 @@ impl fmt::Display for Log {
         let ts = now.format("%d-%m-%Y %H:%M:%S");
 
         let prefix = match self.level {
-            LogLevel::ClusterDebug => concat!("\x1b[94m", "CDEBUG", "\x1b[0m"),
-            LogLevel::ClusterInfo => concat!("\x1b[92m", "CINFO", "\x1b[0m"),
+            LogLevel::Gossip => concat!("\x1b[96m", "GOSSIP", "\x1b[0m"),
             LogLevel::Debug => concat!("\x1b[94m", "DEBUG", "\x1b[0m"),
             LogLevel::Error => concat!("\x1b[91m", "ERROR", "\x1b[0m"),
             LogLevel::Info => concat!("\x1b[92m", "INFO", "\x1b[0m"),
@@ -53,16 +61,9 @@ impl fmt::Display for Log {
 }
 
 #[macro_export]
-macro_rules! cdebug {
+macro_rules! gossip {
     ($($arg:tt)*) => ({
-        $crate::Log { msg: format!($($arg)*), level: $crate::LogLevel::ClusterDebug }
-    });
-}
-
-#[macro_export]
-macro_rules! cinfo {
-    ($($arg:tt)*) => ({
-        $crate::Log { msg: format!($($arg)*), level: $crate::LogLevel::ClusterInfo }
+        $crate::Log { msg: format!($($arg)*), level: $crate::LogLevel::Gossip }
     });
 }
 

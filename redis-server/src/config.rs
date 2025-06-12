@@ -54,7 +54,7 @@ impl Default for Config {
 }
 
 impl ClusterConfig {
-    fn default(bind: Ipv4Addr, port: u16) -> Self {
+    pub fn default(bind: Ipv4Addr, port: u16) -> Self {
         Self {
             bind,
             port,
