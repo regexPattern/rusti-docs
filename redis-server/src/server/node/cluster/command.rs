@@ -33,17 +33,13 @@ impl ClusterActor {
         log_tx: &Sender<Log>,
     ) {
         let reply = match cmd {
-            ClusterCommand::FailOver(_cmd) => todo!(),
-            ClusterCommand::Info(_cmd) => todo!(),
-            ClusterCommand::Meet(cmd) => self.meet(cmd, log_tx),
+            ClusterCommand::Meet(meet) => self.meet(meet, log_tx),
             ClusterCommand::Nodes(_) => self.nodes(),
-            ClusterCommand::Shards(_) => todo!(),
-            ClusterCommand::AddSlots(cmd) => self.add_slots(cmd, log_tx),
-            ClusterCommand::AddSlotsRange(cmd) => self.add_slots_range(cmd.start, cmd.end, log_tx),
-            ClusterCommand::Replicate(cmd) => self.replicate(cmd, log_tx),
-            ClusterCommand::MyId(_cmd) => todo!(),
-            ClusterCommand::SetConfigEpoch(_cmd) => todo!(),
-            ClusterCommand::SaveConfig(_cmd) => todo!(),
+            ClusterCommand::AddSlots(add_slots) => self.add_slots(add_slots, log_tx),
+            ClusterCommand::AddSlotsRange(add_slots_range) => {
+                self.add_slots_range(add_slots_range.start, add_slots_range.end, log_tx)
+            }
+            ClusterCommand::Replicate(replicate) => self.replicate(replicate, log_tx),
             ClusterCommand::KeySlot(key_slot) => Self::key_slot(&key_slot.key),
         };
 
@@ -109,45 +105,83 @@ impl ClusterActor {
         BulkString::from(nodes.join("\n")).into()
     }
 
-    fn replicate(&mut self, cmd: Replicate, log_tx: &Sender<Log>) -> Vec<u8> {
-        if let Some(stream) = self.replication_stream.take() {
-            log_tx
-                .send(log::info!("cerrado replication stream con master anterior"))
-                .unwrap();
-            stream.shutdown(Shutdown::Both).unwrap();
-        }
+    fn add_slots(&mut self, cmd: AddSlots, log_tx: &Sender<Log>) -> Vec<u8> {
+        let mut slots = vec![cmd.slot];
+        slots.extend(cmd.slots);
 
-        let mut master_id = [0u8; 20];
-        hex::decode_to_slice(&cmd.node_id.to_string(), &mut master_id).unwrap();
+        let start: u16 = slots[0].to_string().parse().unwrap();
+        let end: u16 = slots[slots.len() - 1].to_string().parse().unwrap();
 
-        let master = match self.cluster_view.get(&master_id) {
-            Some(master) => master,
-            None => {
-                return SimpleError::from(format!("nodo {} no conocido", hex::encode(master_id)))
-                    .into();
-            }
-        };
-
-        // TODO hacer que esto retorne un error si ya conozco al nodo pero no puedo contactarme con
-        // el.
-        self.start_replication_stream(master, self.storage_tx.clone(), log_tx.clone());
-
-        self.myself.master_id = Some(master_id);
-        self.myself.flags.0 &= !flags::FLAG_MASTER;
-        self.myself.flags.0 |= flags::FLAG_SLAVE;
-        self.myself.slots = master.slots;
+        self.myself.slots = (start, end);
 
         log_tx
-            .send(log::info!(
-                "configurado nodo como replica de {}",
-                hex::encode(master_id)
-            ))
+            .send(log::info!("asignados {} slots", slots.len()))
             .unwrap();
 
         SimpleString::from("OK").into()
     }
 
-    fn start_replication_stream(
+    fn add_slots_range(
+        &mut self,
+        start: BulkString,
+        end: BulkString,
+        log_tx: &Sender<Log>,
+    ) -> Vec<u8> {
+        let start: u16 = start.to_string().parse().unwrap();
+        let end: u16 = end.to_string().parse().unwrap();
+
+        if start > end {
+            return SimpleError::from("rango de slots inválido").into();
+        }
+
+        self.myself.slots = (start, end);
+
+        log_tx
+            .send(log::info!("asignados slots del {start} al {end}"))
+            .unwrap();
+
+        SimpleString::from("OK").into()
+    }
+
+    // fn replicate(&mut self, cmd: Replicate, log_tx: &Sender<Log>) -> Vec<u8> {
+    //     if let Some(stream) = self.replication_link.take() {
+    //         log_tx
+    //             .send(log::info!("cerrado replication stream con master anterior"))
+    //             .unwrap();
+    //         stream.shutdown(Shutdown::Both).unwrap();
+    //     }
+    //
+    //     let mut master_id = [0u8; 20];
+    //     hex::decode_to_slice(&cmd.node_id.to_string(), &mut master_id).unwrap();
+    //
+    //     let master = match self.cluster_view.get(&master_id) {
+    //         Some(master) => master,
+    //         None => {
+    //             return SimpleError::from(format!("nodo {} no conocido", hex::encode(master_id)))
+    //                 .into();
+    //         }
+    //     };
+    //
+    //     // TODO hacer que esto retorne un error si ya conozco al nodo pero no puedo contactarme con
+    //     // el.
+    //     self.connect_replication_stream(master, self.storage_tx.clone(), log_tx.clone());
+    //
+    //     self.myself.master_id = Some(master_id);
+    //     self.myself.flags.0 &= !flags::FLAG_MASTER;
+    //     self.myself.flags.0 |= flags::FLAG_SLAVE;
+    //     self.myself.slots = master.slots;
+    //
+    //     log_tx
+    //         .send(log::info!(
+    //             "configurado nodo como replica de {}",
+    //             hex::encode(master_id)
+    //         ))
+    //         .unwrap();
+    //
+    //     SimpleString::from("OK").into()
+    // }
+
+    fn connect_replication_stream(
         &self,
         master: &ClusterNode,
         storage_tx: Sender<StorageAction>,
@@ -200,44 +234,6 @@ impl ClusterActor {
                 }
             }
         });
-    }
-
-    fn add_slots(&mut self, cmd: AddSlots, log_tx: &Sender<Log>) -> Vec<u8> {
-        let mut slots = vec![cmd.slot];
-        slots.extend(cmd.slots);
-
-        let start: u16 = slots[0].to_string().parse().unwrap();
-        let end: u16 = slots[slots.len() - 1].to_string().parse().unwrap();
-
-        self.myself.slots = (start, end);
-
-        log_tx
-            .send(log::info!("asignados {} slots", slots.len()))
-            .unwrap();
-
-        SimpleString::from("OK").into()
-    }
-
-    fn add_slots_range(
-        &mut self,
-        start: BulkString,
-        end: BulkString,
-        log_tx: &Sender<Log>,
-    ) -> Vec<u8> {
-        let start: u16 = start.to_string().parse().unwrap();
-        let end: u16 = end.to_string().parse().unwrap();
-
-        if start > end {
-            return SimpleError::from("rango de slots inválido").into();
-        }
-
-        self.myself.slots = (start, end);
-
-        log_tx
-            .send(log::info!("asignados slots del {start} al {end}"))
-            .unwrap();
-
-        SimpleString::from("OK").into()
     }
 
     fn key_slot(key: &BulkString) -> Vec<u8> {

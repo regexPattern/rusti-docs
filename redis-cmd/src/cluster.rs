@@ -6,34 +6,22 @@ use redis_resp::BulkString;
 /// Comandos de cluster.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClusterCommand {
-    FailOver(FailOver),
-    Info(Info),
     Meet(Meet),
     Nodes(Nodes),
-    Shards(Shards),
     AddSlots(AddSlots),
     AddSlotsRange(AddSlotsRange),
     Replicate(Replicate),
-    MyId(MyId),
-    SetConfigEpoch(SetConfigEpoch),
-    SaveConfig(SaveConfig),
     KeySlot(KeySlot),
 }
 
 impl From<ClusterCommand> for Vec<BulkString> {
     fn from(cmd: ClusterCommand) -> Self {
         match cmd {
-            ClusterCommand::FailOver(cmd) => cmd.into(),
-            ClusterCommand::Info(cmd) => cmd.into(),
             ClusterCommand::Meet(cmd) => cmd.into(),
             ClusterCommand::Nodes(cmd) => cmd.into(),
-            ClusterCommand::Shards(cmd) => cmd.into(),
             ClusterCommand::AddSlots(cmd) => cmd.into(),
             ClusterCommand::AddSlotsRange(cmd) => cmd.into(),
             ClusterCommand::Replicate(cmd) => cmd.into(),
-            ClusterCommand::MyId(cmd) => cmd.into(),
-            ClusterCommand::SetConfigEpoch(cmd) => cmd.into(),
-            ClusterCommand::SaveConfig(cmd) => cmd.into(),
             ClusterCommand::KeySlot(cmd) => cmd.into(),
         }
     }
@@ -42,17 +30,11 @@ impl From<ClusterCommand> for Vec<BulkString> {
 impl fmt::Display for ClusterCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ClusterCommand::FailOver(cmd) => write!(f, "{cmd}"),
-            ClusterCommand::Info(cmd) => write!(f, "{cmd}"),
             ClusterCommand::Meet(cmd) => write!(f, "{cmd}"),
             ClusterCommand::Nodes(cmd) => write!(f, "{cmd}"),
-            ClusterCommand::Shards(cmd) => write!(f, "{cmd}"),
             ClusterCommand::AddSlots(cmd) => write!(f, "{cmd}"),
             ClusterCommand::AddSlotsRange(cmd) => write!(f, "{cmd}"),
             ClusterCommand::Replicate(cmd) => write!(f, "{cmd}"),
-            ClusterCommand::MyId(cmd) => write!(f, "{cmd}"),
-            ClusterCommand::SetConfigEpoch(cmd) => write!(f, "{cmd}"),
-            ClusterCommand::SaveConfig(cmd) => write!(f, "{cmd}"),
             ClusterCommand::KeySlot(cmd) => write!(f, "{cmd}"),
         }
     }
@@ -106,69 +88,6 @@ impl fmt::Display for Meet {
     }
 }
 
-/// This command, that can only be sent to a Redis Cluster replica node, forces the replica to start a manual failover of its master instance.
-///
-/// https://redis.io/docs/latest/commands/cluster-failover
-#[derive(Clone, Debug, PartialEq)]
-pub struct FailOver {
-    pub option: Option<BulkString>,
-}
-
-impl FailOver {
-    pub fn from_args(mut args: impl Iterator<Item = BulkString>) -> Result<Self, Error> {
-        let option = args.next();
-        Ok(Self { option })
-    }
-}
-
-impl From<FailOver> for Vec<BulkString> {
-    fn from(_: FailOver) -> Self {
-        vec!["FAILOVER".into()]
-    }
-}
-
-impl From<FailOver> for ClusterCommand {
-    fn from(cmd: FailOver) -> Self {
-        ClusterCommand::FailOver(cmd)
-    }
-}
-
-impl fmt::Display for FailOver {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "CLUSTER FAILOVER")
-    }
-}
-
-/// Provides INFO style information about Redis Cluster vital parameters.
-///
-/// https://redis.io/docs/latest/commands/cluster-info
-#[derive(Clone, Debug, PartialEq)]
-pub struct Info;
-
-impl Info {
-    pub fn from_args(_args: impl Iterator<Item = BulkString>) -> Result<Self, Error> {
-        Ok(Info)
-    }
-}
-
-impl From<Info> for Vec<BulkString> {
-    fn from(_: Info) -> Self {
-        vec!["INFO".into()]
-    }
-}
-
-impl From<Info> for ClusterCommand {
-    fn from(cmd: Info) -> Self {
-        ClusterCommand::Info(cmd)
-    }
-}
-
-impl fmt::Display for Info {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "CLUSTER INFO")
-    }
-}
-
 /// Each node in a Redis Cluster has its view of the current cluster configuration, given by the set of known nodes, the state of the connection we have with such nodes, their flags, properties and assigned slots, and so forth.
 ///
 /// https://redis.io/docs/latest/commands/cluster-nodes
@@ -196,36 +115,6 @@ impl From<Nodes> for ClusterCommand {
 impl fmt::Display for Nodes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "CLUSTER NODES")
-    }
-}
-
-/// Returns details about the shards of the cluster.
-///
-/// https://redis.io/docs/latest/commands/cluster-shards
-#[derive(Clone, Debug, PartialEq)]
-pub struct Shards;
-
-impl Shards {
-    pub fn from_args(_args: impl Iterator<Item = BulkString>) -> Result<Self, Error> {
-        Ok(Shards)
-    }
-}
-
-impl From<Shards> for Vec<BulkString> {
-    fn from(_: Shards) -> Self {
-        vec!["SHARDS".into()]
-    }
-}
-
-impl From<Shards> for ClusterCommand {
-    fn from(cmd: Shards) -> Self {
-        ClusterCommand::Shards(cmd)
-    }
-}
-
-impl fmt::Display for Shards {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "CLUSTER SHARDS")
     }
 }
 
@@ -329,91 +218,6 @@ impl From<Replicate> for ClusterCommand {
 impl fmt::Display for Replicate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "CLUSTER REPLICATE {}", self.node_id)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct MyId;
-
-impl MyId {
-    pub fn from_args(_: impl Iterator<Item = BulkString>) -> Result<Self, Error> {
-        Ok(Self)
-    }
-}
-
-impl From<MyId> for Vec<BulkString> {
-    fn from(_: MyId) -> Self {
-        vec!["MYID".into()]
-    }
-}
-
-impl From<MyId> for ClusterCommand {
-    fn from(cmd: MyId) -> Self {
-        ClusterCommand::MyId(cmd)
-    }
-}
-
-impl fmt::Display for MyId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "CLUSTER MYID")
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct SetConfigEpoch {
-    config_epoch: BulkString,
-}
-
-impl SetConfigEpoch {
-    pub fn from_args(mut args: impl Iterator<Item = BulkString>) -> Result<Self, Error> {
-        Ok(Self {
-            config_epoch: args.next().ok_or(Error::MissingArgument)?,
-        })
-    }
-}
-
-impl From<SetConfigEpoch> for Vec<BulkString> {
-    fn from(_: SetConfigEpoch) -> Self {
-        vec!["SET-CONFIG-EPOCH".into()]
-    }
-}
-
-impl From<SetConfigEpoch> for ClusterCommand {
-    fn from(cmd: SetConfigEpoch) -> Self {
-        ClusterCommand::SetConfigEpoch(cmd)
-    }
-}
-
-impl fmt::Display for SetConfigEpoch {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "CLUSTER SET-CONFIG-EPOCH")
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct SaveConfig;
-
-impl SaveConfig {
-    pub fn from_args(_: impl Iterator<Item = BulkString>) -> Result<Self, Error> {
-        Ok(Self)
-    }
-}
-
-impl From<SaveConfig> for Vec<BulkString> {
-    fn from(_: SaveConfig) -> Self {
-        vec!["SAVECONFIG".into()]
-    }
-}
-
-impl From<SaveConfig> for ClusterCommand {
-    fn from(cmd: SaveConfig) -> Self {
-        ClusterCommand::SaveConfig(cmd)
-    }
-}
-
-impl fmt::Display for SaveConfig {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "CLUSTER SAVECONFIG")
     }
 }
 

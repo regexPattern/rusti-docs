@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::time::SystemTime;
 use std::{io::prelude::*, sync::mpsc::Sender};
 
@@ -204,21 +205,28 @@ impl ClusterActor {
                     && n.slots == self.myself.slots
             }) {
                 log_tx
-                    .send(log::warn!(
-                        "No se puede promover a MASTER: ya existe un MASTER {} con los mismos slots {:?}",
+                    .send(log::debug!(
+                        "ya existe un master {} con los slots del {} al {}",
                         hex::encode(master.id),
-                        master.slots
+                        master.slots.0,
+                        master.slots.1,
                     ))
                     .unwrap();
-                self.failover_in_progress = false;
 
-                self.myself.master_id = Some(master.id);
+                self.failover_in_progress = false;
+                self.set_master(master.id, log_tx).unwrap();
+
+                // let master_addr = SocketAddr::new(master.ip.into(), master.cluster_port);
+                // self.replicate_master(master.id, master_addr, master.slots, log_tx);
 
                 return;
             }
 
             log_tx
-                .send(log::debug!("EPOCH DE PROMOTION {}", self.current_epoch))
+                .send(log::debug!(
+                    "ascendido a master en epoch {}",
+                    self.current_epoch
+                ))
                 .unwrap();
 
             self.myself.flags.0 &= !flags::FLAG_SLAVE;
@@ -241,52 +249,5 @@ impl ClusterActor {
                 ))
                 .unwrap();
         }
-    }
-
-    fn can_vote_for_replica(&self) -> bool {
-        // si el master de la replica tiene fail, y no he votado en este epoch
-        true
-    }
-
-    fn failover_has_quorum(n_known_masters_votes: usize, n_known_alive_masters: usize) -> bool {
-        n_known_masters_votes >= (n_known_alive_masters / 2 + 1)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn failover_tiene_quorum_si_se_reciben_votos_de_mayoria_de_masters() {
-        let n_known_masters_votes = 3;
-        let n_known_alive_masters = 5;
-
-        assert!(ClusterActor::failover_has_quorum(
-            n_known_masters_votes,
-            n_known_alive_masters
-        ));
-    }
-
-    #[test]
-    fn failover_no_tiene_quorum_si_no_se_reciben_votos_de_mayoria_de_masters() {
-        let n_known_masters_votes = 2;
-        let n_known_alive_masters = 5;
-
-        assert!(!ClusterActor::failover_has_quorum(
-            n_known_masters_votes,
-            n_known_alive_masters
-        ));
-    }
-
-    #[test]
-    fn failover_no_tiene_quorum_en_caso_de_empate() {
-        let n_known_masters_votes = 2;
-        let n_known_alive_masters = 4;
-
-        assert!(!ClusterActor::failover_has_quorum(
-            n_known_masters_votes,
-            n_known_alive_masters
-        ));
     }
 }

@@ -4,7 +4,8 @@ mod failover;
 mod flags;
 mod gossip;
 pub mod message;
-mod publish;
+mod pub_sub;
+mod replication;
 mod sharding;
 
 use std::{
@@ -48,7 +49,7 @@ pub struct ClusterActor {
     cluster_streams: HashMap<NodeId, TcpStream>,
     timeout_millis: u64,
     failure_reports: HashMap<NodeId, HashMap<NodeId, FailureReport>>,
-    replication_stream: Option<TcpStream>,
+    replication_link: Option<TcpStream>,
     storage_tx: Sender<StorageAction>,
     pub_sub_tx: Sender<PublishPayload>,
     votes_received: u64,
@@ -109,7 +110,7 @@ impl ClusterActor {
             cluster_streams: HashMap::new(),
             timeout_millis: 10000,
             failure_reports: HashMap::new(),
-            replication_stream: None,
+            replication_link: None,
             storage_tx,
             pub_sub_tx,
             votes_received: 0,
@@ -589,7 +590,7 @@ mod tests {
             cluster_streams: HashMap::new(),
             timeout_millis: cluster_config.node_timeout as u64,
             failure_reports: HashMap::new(),
-            replication_stream: None,
+            replication_link: None,
             storage_tx,
             pub_sub_tx,
             votes_received: 0,

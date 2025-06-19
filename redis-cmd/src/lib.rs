@@ -88,16 +88,10 @@ impl TryFrom<Array> for Command {
                 let sub_cmd_str = String::from(sub_cmd_bs).to_ascii_uppercase();
                 match sub_cmd_str.as_str() {
                     "MEET" => Self::Cluster(Meet::from_args(args)?.into()),
-                    "FAILOVER" => Self::Cluster(FailOver::from_args(args)?.into()),
-                    "INFO" => Self::Cluster(Info::from_args(args)?.into()),
                     "NODES" => Self::Cluster(Nodes::from_args(args)?.into()),
-                    "SHARDS" => Self::Cluster(Shards::from_args(args)?.into()),
                     "ADDSLOTS" => Self::Cluster(AddSlots::from_args(args)?.into()),
                     "ADDSLOTSRANGE" => Self::Cluster(AddSlotsRange::from_args(args)?.into()),
                     "REPLICATE" => Self::Cluster(Replicate::from_args(args)?.into()),
-                    "MYID" => Self::Cluster(MyId::from_args(args)?.into()),
-                    "SET-CONFIG-EPOCH" => Self::Cluster(SetConfigEpoch::from_args(args)?.into()),
-                    "SAVECONFIG" => Self::Cluster(SaveConfig::from_args(args)?.into()),
                     "KEYSLOT" => Self::Cluster(KeySlot::from_args(args)?.into()),
                     _ => return Err(Error::CommandNotSupported),
                 }
