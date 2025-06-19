@@ -40,7 +40,7 @@ impl fmt::Debug for FailureReport {
 }
 
 impl ClusterActor {
-    pub fn handle_fail_msg(&mut self, payload: FailPayload, log_tx: &Sender<Log>) {
+    pub fn handle_fail_message(&mut self, payload: FailPayload, log_tx: &Sender<Log>) {
         if let Some(node) = self.cluster_view.get_mut(&payload.id) {
             node.flags.0 |= flags::FLAG_FAIL;
             node.flags.0 &= !flags::FLAG_PFAIL;
@@ -53,7 +53,7 @@ impl ClusterActor {
                 .unwrap();
 
             if Some(node.id) == self.myself.master_id {
-                self.request_failover();
+                self.request_failover(log_tx);
             }
         }
     }
@@ -105,36 +105,61 @@ impl ClusterActor {
             })
             .count();
 
-        for node in self
+        //xa poder llamar a self.rqeuest_failover sin quilombos de borrowing
+        //como solmente cuento com affected nodes los nodos que estan en PFAIL
+        //Y NO LO Q ESTAN EN FAIL,
+        //NO CORREMOS RIESGO DE LLAMAR A 2 FAILOVERS SEGUIDOS POR QUE
+        //O SE LLAMA CUANOD LLEGO EL FAIL
+        //O SE LLAMA XQ YO LO MARUQE COM FAIL
+        let affected_node_ids: Vec<_> = self
             .cluster_view
-            .values_mut()
+            .values()
             .filter(|n| n.flags.contains(flags::FLAG_PFAIL) && !n.flags.contains(flags::FLAG_FAIL))
-        {
-            if let Some(reports) = self.failure_reports.get(&node.id) {
+            .map(|n| n.id)
+            .collect();
+
+        for node_id in affected_node_ids {
+            if let Some(reports) = self.failure_reports.get(&node_id) {
                 if Self::failure_has_quorum(self.myself.flags, reports.len(), n_known_other_masters)
                 {
                     actions_tx
-                        .send(ClusterAction::ConfirmFailure { id: node.id })
+                        .send(ClusterAction::ConfirmFailure { id: node_id })
                         .unwrap();
 
                     log_tx
-                        .send(log::info!("enviado FAIL de nodo {}", hex::encode(node.id)))
+                        .send(log::info!("enviado FAIL de nodo {}", hex::encode(node_id)))
                         .unwrap();
-                }
 
-                node.flags.0 &= !flags::FLAG_PFAIL;
-                node.flags.0 |= flags::FLAG_FAIL;
+                    if let Some(node) = self.cluster_view.get_mut(&node_id) {
+                        node.flags.0 &= !flags::FLAG_PFAIL;
+                        node.flags.0 |= flags::FLAG_FAIL;
+                    }
+
+                    // Si soy replica y el nodo que fallo es mi master, solicito un failover.
+                    if let Some(master_id) = self.myself.master_id {
+                        if master_id == node_id {
+                            log_tx
+                                .send(log::info!(
+                                    "Mi master {} ha fallado, solicitando failover",
+                                    hex::encode(master_id)
+                                ))
+                                .unwrap();
+
+                            self.request_failover(log_tx);
+                        }
+                    }
+                }
             }
         }
     }
 
     fn failure_has_quorum(
         myself_flags: Flags,
-        n_other_masters_reports: usize,
-        n_other_alive_masters: usize,
+        n_known_masters_reports: usize,
+        n_known_alive_masters: usize,
     ) -> bool {
-        n_other_masters_reports + (myself_flags.contains(flags::FLAG_MASTER) as usize)
-            >= (n_other_alive_masters / 2 + 1)
+        n_known_masters_reports + (myself_flags.contains(flags::FLAG_MASTER) as usize)
+            >= (n_known_alive_masters / 2 + 1)
     }
 
     fn filter_expired_failure_reports(&mut self, now: SystemTime) {

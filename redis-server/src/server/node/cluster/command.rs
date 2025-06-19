@@ -8,7 +8,7 @@ use std::{
 use log::Log;
 use redis_cmd::{
     Command,
-    cluster::{AddSlots, AddSlotsRange, ClusterCommand, Meet, Replicate},
+    cluster::{AddSlots, ClusterCommand, Meet, Replicate},
     server::{ServerCommand, Sync},
 };
 use redis_resp::{BulkString, SimpleError, SimpleString};
@@ -134,6 +134,7 @@ impl ClusterActor {
         self.myself.master_id = Some(master_id);
         self.myself.flags.0 &= !flags::FLAG_MASTER;
         self.myself.flags.0 |= flags::FLAG_SLAVE;
+        self.myself.slots = master.slots;
 
         log_tx
             .send(log::info!(

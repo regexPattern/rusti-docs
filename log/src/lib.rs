@@ -5,6 +5,7 @@ use std::sync::mpsc::SendError;
 use chrono::Local;
 
 static DEBUG_ENABLED: OnceLock<bool> = OnceLock::new();
+static GOSSIP_ENABLED: OnceLock<bool> = OnceLock::new();
 
 #[derive(Debug, PartialEq)]
 pub struct Log {
@@ -25,7 +26,7 @@ pub type Error = SendError<Log>;
 
 impl fmt::Display for Log {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let heartbeat_on = *DEBUG_ENABLED.get_or_init(|| {
+        let heartbeat_on = *GOSSIP_ENABLED.get_or_init(|| {
             std::env::var("LOG_LEVEL")
                 .map(|v| v.eq_ignore_ascii_case("GOSSIP"))
                 .unwrap_or(false)
