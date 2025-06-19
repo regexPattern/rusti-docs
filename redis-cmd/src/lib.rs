@@ -98,6 +98,7 @@ impl TryFrom<Array> for Command {
                     "MYID" => Self::Cluster(MyId::from_args(args)?.into()),
                     "SET-CONFIG-EPOCH" => Self::Cluster(SetConfigEpoch::from_args(args)?.into()),
                     "SAVECONFIG" => Self::Cluster(SaveConfig::from_args(args)?.into()),
+                    "KEYSLOT" => Self::Cluster(KeySlot::from_args(args)?.into()),
                     _ => return Err(Error::CommandNotSupported),
                 }
             }

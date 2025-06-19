@@ -46,6 +46,37 @@ pub enum StorageCommand {
     Incr(Incr),
 }
 
+impl StorageCommand {
+    pub fn key(&self) -> &BulkString {
+        match self {
+            StorageCommand::Del(del) => (&del.key).into(),
+            StorageCommand::HSet(hset) => (&hset.key).into(),
+            StorageCommand::HGet(hget) => (&hget.key).into(),
+            StorageCommand::HDel(hdel) => (&hdel.key).into(),
+            StorageCommand::HGetAll(hget_all) => (&hget_all.key).into(),
+            StorageCommand::HKeys(hkeys) => (&hkeys.key).into(),
+            StorageCommand::HVals(hvals) => (&hvals.key).into(),
+            StorageCommand::HExists(hexists) => (&hexists.key).into(),
+            StorageCommand::LPush(lpush) => (&lpush.key).into(),
+            StorageCommand::LInsert(linsert) => (&linsert.key).into(),
+            StorageCommand::LPop(lpop) => (&lpop.key).into(),
+            StorageCommand::LIndex(lindex) => (&lindex.key).into(),
+            StorageCommand::LLen(llen) => (&llen.key).into(),
+            StorageCommand::LRange(lrange) => (&lrange.key).into(),
+            StorageCommand::SAdd(sadd) => (&sadd.key).into(),
+            StorageCommand::SRem(srem) => (&srem.key).into(),
+            StorageCommand::SCard(scard) => (&scard.key).into(),
+            StorageCommand::SIsMember(sis_member) => (&sis_member.key).into(),
+            StorageCommand::SMembers(smembers) => (&smembers.key).into(),
+            StorageCommand::Set(set) => (&set.key).into(),
+            StorageCommand::Get(get) => (&get.key).into(),
+            StorageCommand::Append(append) => (&append.key).into(),
+            StorageCommand::Decr(decr) => (&decr.key).into(),
+            StorageCommand::Incr(incr) => (&incr.key).into(),
+        }
+    }
+}
+
 impl From<StorageCommand> for Vec<BulkString> {
     fn from(cmd: StorageCommand) -> Self {
         match cmd {

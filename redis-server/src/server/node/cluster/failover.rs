@@ -191,13 +191,13 @@ impl ClusterActor {
 
         // Si alcanzamos el quórum y aún no somos master, promovemos
         if self.votes_received >= quorum as u64 && !self.myself.flags.contains(flags::FLAG_MASTER) {
-            //ESTA FALLANDO UNA VEZ CADA TANTO POREQUE OCURRE QUE EL QUE SE PROMOVIO AUN NO LLEGO A 
+            //ESTA FALLANDO UNA VEZ CADA TANTO POREQUE OCURRE QUE EL QUE SE PROMOVIO AUN NO LLEGO A
             //POROPAGAR POR GOSSIP SU ESTADO ENONCES EL OTRO PREGUNTA SI TIENE EN SU CLUSTER VIEW UN
-            //MASTER CON MISMOS SLOSTS Y DICE NOOO XQ AUNQ NO LO LLEGO LA FINO DEL OTRO ENTRONCES 
+            //MASTER CON MISMOS SLOSTS Y DICE NOOO XQ AUNQ NO LO LLEGO LA FINO DEL OTRO ENTRONCES
             //SE PROMUEVE Y U YA HABIA OTRO Y NO SE HABIA ENTERADO
             //creo q estamos teniendo un spliot brain.
             //aumentar la vleocidad del gossip para que llegeu ela ifno mucho antes podria servir????
-            
+
             if let Some(master) = self.cluster_view.values().find(|n| {
                 n.flags.contains(flags::FLAG_MASTER)
                     && !n.flags.contains(flags::FLAG_FAIL)
@@ -211,12 +211,11 @@ impl ClusterActor {
                     ))
                     .unwrap();
                 self.failover_in_progress = false;
-                
+
                 self.myself.master_id = Some(master.id);
 
                 return;
             }
-
 
             log_tx
                 .send(log::debug!("EPOCH DE PROMOTION {}", self.current_epoch))

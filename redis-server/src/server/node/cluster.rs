@@ -5,6 +5,7 @@ mod flags;
 mod gossip;
 pub mod message;
 mod publish;
+mod sharding;
 
 use std::{
     collections::{HashMap, hash_map::Entry},
@@ -34,19 +35,13 @@ use message::{
 use crate::{config::ClusterConfig, server::node::storage::StorageAction};
 
 const CLUSTER_GOSSIP_SHARE_FACTOR: f64 = 0.25;
+const CLUSTER_SLOTS: u16 = 16384;
 
 type NodeId = [u8; 20];
-
-// ¿Qué valor poner en el header?
-// Para mensajes de gossip y actualización de nodos:
-// header.config_epoch = self.myself.config_epoch;
-//Para mensajes de failover:
-//header.config_epoch = self.current_epoch;
 
 #[derive(Debug)]
 pub struct ClusterActor {
     myself: ClusterNode,
-    config_epoch: u64,
     current_epoch: u64,
     last_vote_epoch: u64,
     cluster_view: HashMap<NodeId, ClusterNode>,
@@ -65,11 +60,11 @@ pub struct ClusterActor {
 
 #[derive(Debug)]
 pub enum ClusterAction {
-    ClientCmd {
+    ClientCommand {
         cmd: ClusterCommand,
-        client_tx: Sender<Vec<u8>>,
+        reply_tx: Sender<Vec<u8>>,
     },
-    ClusterMsg(Message),
+    ClusterMessage(Message),
     TickPing,
     CheckFailures,
     ConfirmFailure {
@@ -78,6 +73,10 @@ pub enum ClusterAction {
     BroadcastPublish {
         channel: BulkString,
         message: BulkString,
+    },
+    RedirectToHoldingNode {
+        key: BulkString,
+        redir_tx: Sender<Option<Vec<u8>>>,
     },
 }
 
@@ -104,7 +103,6 @@ impl ClusterActor {
                 slots: (0, 0),
                 master_id: None,
             },
-            config_epoch: 0,
             current_epoch: 0,
             last_vote_epoch: 0,
             cluster_view: HashMap::new(),
@@ -209,7 +207,7 @@ impl ClusterActor {
                                 drop_stream = *kind == GossipKind::Meet;
                             }
 
-                            actions_tx.send(ClusterAction::ClusterMsg(msg)).unwrap();
+                            actions_tx.send(ClusterAction::ClusterMessage(msg)).unwrap();
 
                             if drop_stream {
                                 return;
@@ -231,10 +229,11 @@ impl ClusterActor {
     ) {
         for action in actions_rx {
             match action {
-                ClusterAction::ClientCmd { cmd, client_tx } => {
-                    self.handle_cmd(cmd, client_tx, &log_tx)
-                }
-                ClusterAction::ClusterMsg(msg) => {
+                ClusterAction::ClientCommand {
+                    cmd,
+                    reply_tx: client_tx,
+                } => self.handle_cmd(cmd, client_tx, &log_tx),
+                ClusterAction::ClusterMessage(msg) => {
                     self.handle_incoming_message(msg, &log_tx);
                 }
                 ClusterAction::TickPing => {
@@ -262,7 +261,7 @@ impl ClusterActor {
                     self.check_failures(&actions_tx, &log_tx);
 
                     if self.failover_in_progress {
-                        if let (Some(start), Some(epoch)) =
+                        if let (Some(start), Some(_epoch)) =
                             (self.failover_start, self.failover_epoch)
                         {
                             if SystemTime::now().duration_since(start).unwrap()
@@ -294,6 +293,9 @@ impl ClusterActor {
                     self.broadcast_publish(channel, message, &actions_tx, &log_tx);
                 }
                 ClusterAction::ConfirmFailure { id } => self.confirm_failure(id, &log_tx),
+                ClusterAction::RedirectToHoldingNode { key, redir_tx } => {
+                    self.redirect_to_holding_node((&key).into(), redir_tx)
+                }
             }
         }
     }
@@ -344,7 +346,9 @@ impl ClusterActor {
         if header.config_epoch != self.myself.config_epoch {
             return;
         }
-        if !header.flags.contains(flags::FLAG_MASTER) || !self.myself.flags.contains(flags::FLAG_MASTER) {
+        if !header.flags.contains(flags::FLAG_MASTER)
+            || !self.myself.flags.contains(flags::FLAG_MASTER)
+        {
             return;
         }
         // No actuar si el otro nodo tiene un NodeId menor o igual
@@ -378,7 +382,6 @@ impl ClusterActor {
     }
 
     fn add_message_sender_to_cluster_view(&mut self, header: &MessageHeader, log_tx: &Sender<Log>) {
-        
         self.handle_config_epoch_collision(header, log_tx);
 
         // log_tx
@@ -428,18 +431,19 @@ impl ClusterActor {
         };
 
         self.check_for_same_slots(header, log_tx);
-
     }
 
     fn check_for_same_slots(&mut self, header: &MessageHeader, log_tx: &Sender<Log>) {
         // Solo si yo soy master y el otro nodo también es master
-        if self.myself.flags.contains(flags::FLAG_MASTER) && header.flags.contains(flags::FLAG_MASTER) {
+        if self.myself.flags.contains(flags::FLAG_MASTER)
+            && header.flags.contains(flags::FLAG_MASTER)
+        {
             // Chequea si los slots coinciden y no son (0, 0)
             if self.myself.slots == header.slots && self.myself.slots != (0, 0) {
                 if self.myself.config_epoch < header.config_epoch
                     // Yo debo hacerme slave del otro si mi config epoch es menor (o mi id es lexicografica// menor)
                     || (self.myself.config_epoch == header.config_epoch && self.myself.id < header.id)
-                    //la verificion del id creo es inecesaria xq ya etsa hanlde_collision pero x las dudas
+                //la verificion del id creo es inecesaria xq ya etsa hanlde_collision pero x las dudas
                 {
                     // Yo debo hacerme slave del otro
                     log_tx.send(log::warn!(
@@ -452,12 +456,11 @@ impl ClusterActor {
                     self.myself.flags.0 &= !flags::FLAG_MASTER;
                     self.myself.flags.0 |= flags::FLAG_SLAVE;
                     self.myself.master_id = Some(header.id);
-                    
+
                     //apago la eleecion
                     self.failover_in_progress = false;
                     self.failover_epoch = None;
                     self.failover_start = None;
-
                 } else {
                     // El otro debería hacerse slave mío
                     //mandar update??
@@ -665,12 +668,4 @@ mod tests {
             &ClusterNode::from(&header)
         );
     }
-
-    //LOGICA PARA NO VOTAR MAS DE UNA VEZ POR EPOCH !
-    // let request_epoch = header.config_epoch;
-
-    // if request_epoch > self.last_vote_epoch {
-    //     self.last_vote_epoch = request_epoch;
-
-    //     }
 }

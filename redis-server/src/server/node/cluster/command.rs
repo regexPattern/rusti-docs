@@ -11,7 +11,7 @@ use redis_cmd::{
     cluster::{AddSlots, ClusterCommand, Meet, Replicate},
     server::{ServerCommand, Sync},
 };
-use redis_resp::{BulkString, SimpleError, SimpleString};
+use redis_resp::{BulkString, Integer, SimpleError, SimpleString};
 
 use crate::server::node::storage::StorageAction;
 
@@ -44,6 +44,7 @@ impl ClusterActor {
             ClusterCommand::MyId(_cmd) => todo!(),
             ClusterCommand::SetConfigEpoch(_cmd) => todo!(),
             ClusterCommand::SaveConfig(_cmd) => todo!(),
+            ClusterCommand::KeySlot(key_slot) => Self::key_slot(&key_slot.key),
         };
 
         client_tx.send(reply).unwrap();
@@ -237,5 +238,10 @@ impl ClusterActor {
             .unwrap();
 
         SimpleString::from("OK").into()
+    }
+
+    fn key_slot(key: &BulkString) -> Vec<u8> {
+        let slot = Self::get_key_slot(key);
+        Integer::from(slot as i64).into()
     }
 }

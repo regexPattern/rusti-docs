@@ -116,18 +116,38 @@ impl Node {
     }
 
     fn execute_command(&self, mut client: TcpStream, cmd: Command) -> Result<(), InternalError> {
-        let (client_tx, client_rx) = mpsc::channel();
+        let (reply_tx, reply_rx) = mpsc::channel();
 
         match cmd {
             Command::Storage(cmd) => {
+                let (redir_tx, redir_rx) = mpsc::channel();
+
+                if let Some(cluster_tx) = &self.cluster_tx {
+                    cluster_tx.send(ClusterAction::RedirectToHoldingNode {
+                        key: cmd.key().to_owned(),
+                        redir_tx,
+                    })?;
+
+                    if let Ok(redir) = redir_rx.recv() {
+                        if let Some(moved_err) = redir {
+                            self.log_tx
+                                .send(log::info!("redirigiendo cliente a nodo correspondiente"))
+                                .unwrap();
+
+                            client
+                                .write_all(&moved_err)
+                                .map_err(InternalError::StreamWrite)?;
+
+                            return Ok(());
+                        }
+                    }
+                }
+
                 self.storage_tx
-                    .send(StorageAction::ClientCommand {
-                        cmd,
-                        reply_tx: client_tx,
-                    })
+                    .send(StorageAction::ClientCommand { cmd, reply_tx })
                     .unwrap();
 
-                if let Ok(reply) = client_rx.recv() {
+                if let Ok(reply) = reply_rx.recv() {
                     client
                         .write_all(&reply)
                         .map_err(InternalError::StreamWrite)?;
@@ -142,19 +162,17 @@ impl Node {
             }
             Command::Cluster(cmd) => {
                 if let Some(cluster_tx) = &self.cluster_tx {
-                    cluster_tx.send(ClusterAction::ClientCmd { cmd, client_tx })?;
+                    cluster_tx.send(ClusterAction::ClientCommand { cmd, reply_tx })?;
 
-                    if let Ok(reply) = client_rx.recv() {
+                    if let Ok(reply) = reply_rx.recv() {
                         client
                             .write_all(&reply)
                             .map_err(InternalError::StreamWrite)?;
                     }
                 } else {
-                    self.log_tx
-                        .send(log::warn!(
-                            "recibido comando de cluster sin tener modo cluster activado"
-                        ))
-                        .unwrap();
+                    self.log_tx.send(log::warn!(
+                        "recibido comando de cluster sin tener modo cluster activado"
+                    ))?;
                 }
             }
             Command::Server(cmd) => match cmd {
@@ -167,13 +185,15 @@ impl Node {
             Command::Connection(cmd) => match cmd {
                 ConnectionCommand::Auth(_cmd) => todo!(),
                 ConnectionCommand::Ping(cmd) => {
-                    if let Some(message) = cmd.message {
-                        client.write_all(&Vec::from(message)).unwrap();
+                    let reply = if let Some(message) = cmd.message {
+                        Vec::from(message)
                     } else {
-                        client
-                            .write_all(&Vec::from(SimpleString::from("PONG")))
-                            .unwrap();
-                    }
+                        Vec::from(SimpleString::from("PONG"))
+                    };
+
+                    client
+                        .write_all(&reply)
+                        .map_err(InternalError::StreamWrite)?;
                 }
             },
         };

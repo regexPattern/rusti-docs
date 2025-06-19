@@ -119,6 +119,8 @@ impl StorageActor {
         Ok(())
     }
 
+    fn spawn_actor_thread() {}
+
     fn load_history(file: &mut File) -> Vec<StorageCommand> {
         let mut history = Vec::new();
         let mut bytes = Vec::new();

@@ -17,6 +17,7 @@ pub enum ClusterCommand {
     MyId(MyId),
     SetConfigEpoch(SetConfigEpoch),
     SaveConfig(SaveConfig),
+    KeySlot(KeySlot),
 }
 
 impl From<ClusterCommand> for Vec<BulkString> {
@@ -33,6 +34,7 @@ impl From<ClusterCommand> for Vec<BulkString> {
             ClusterCommand::MyId(cmd) => cmd.into(),
             ClusterCommand::SetConfigEpoch(cmd) => cmd.into(),
             ClusterCommand::SaveConfig(cmd) => cmd.into(),
+            ClusterCommand::KeySlot(cmd) => cmd.into(),
         }
     }
 }
@@ -51,6 +53,7 @@ impl fmt::Display for ClusterCommand {
             ClusterCommand::MyId(cmd) => write!(f, "{cmd}"),
             ClusterCommand::SetConfigEpoch(cmd) => write!(f, "{cmd}"),
             ClusterCommand::SaveConfig(cmd) => write!(f, "{cmd}"),
+            ClusterCommand::KeySlot(cmd) => write!(f, "{cmd}"),
         }
     }
 }
@@ -411,5 +414,36 @@ impl From<SaveConfig> for ClusterCommand {
 impl fmt::Display for SaveConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "CLUSTER SAVECONFIG")
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct KeySlot {
+    pub key: BulkString,
+}
+
+impl KeySlot {
+    pub fn from_args(mut args: impl Iterator<Item = BulkString>) -> Result<Self, Error> {
+        Ok(Self {
+            key: args.next().ok_or(Error::MissingArgument)?,
+        })
+    }
+}
+
+impl From<KeySlot> for Vec<BulkString> {
+    fn from(cmd: KeySlot) -> Self {
+        vec!["KEYSLOT".into(), cmd.key.into()]
+    }
+}
+
+impl From<KeySlot> for ClusterCommand {
+    fn from(cmd: KeySlot) -> Self {
+        ClusterCommand::KeySlot(cmd)
+    }
+}
+
+impl fmt::Display for KeySlot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CLUSTER KEYSLOT")
     }
 }
