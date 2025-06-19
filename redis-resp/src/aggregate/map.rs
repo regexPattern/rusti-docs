@@ -40,6 +40,16 @@ impl From<Map> for Vec<u8> {
     }
 }
 
+impl IntoIterator for Map {
+    type Item = (RespDataType, RespDataType);
+
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 impl Map {
     pub fn to_resp_vec(
         col: &std::collections::HashMap<super::BulkString, super::BulkString>,

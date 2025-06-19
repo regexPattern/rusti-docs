@@ -68,6 +68,10 @@ impl StorageActor {
 
         let history = Self::load_history(&mut persistence_file);
 
+        for cmd in &history {
+            storage_actor.apply(cmd.clone());
+        }
+
         if history.len() > 0 {
             logger_tx.send(log::info!(
                 "recuperados {} comandos del archivo de persistencia",
@@ -156,7 +160,7 @@ impl StorageActor {
         Ok(reply)
     }
 
-    fn apply(&mut self, cmd: StorageCommand) -> Vec<u8> {
+    pub fn apply(&mut self, cmd: StorageCommand) -> Vec<u8> {
         match cmd {
             StorageCommand::Del(Del { key, keys }) => self.del(key, keys),
 

@@ -5,7 +5,6 @@ members = [
 	"docs-syncer",
 	"log",
 	"redis-cmd",
-	"redis-lib",
 	"redis-resp",
 	"redis-server"
 ]

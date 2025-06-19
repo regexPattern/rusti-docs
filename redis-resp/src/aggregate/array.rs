@@ -135,6 +135,16 @@ impl From<Array> for Vec<RespDataType> {
     }
 }
 
+impl IntoIterator for Array {
+    type Item = RespDataType;
+
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{BulkString, Integer, SimpleError, SimpleString};

@@ -114,6 +114,12 @@ impl<'b> From<&'b BulkString> for &'b str {
     }
 }
 
+impl PartialEq<&str> for BulkString {
+    fn eq(&self, other: &&str) -> bool {
+        self.0 == *other
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
