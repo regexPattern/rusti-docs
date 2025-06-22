@@ -3,7 +3,7 @@ use std::{net::SocketAddr, sync::mpsc::Sender};
 use crc16::{State, XMODEM};
 use redis_resp::{BulkString, SimpleError};
 
-use super::{CLUSTER_SLOTS, ClusterActor};
+use super::{CLUSTER_SLOTS, ClusterActor, flags};
 
 impl ClusterActor {
     pub fn get_key_slot(key: &BulkString) -> u16 {
@@ -28,7 +28,10 @@ impl ClusterActor {
     fn get_redirect_address(&self, slot: u16) -> Option<SocketAddr> {
         for node_id in self.cluster_streams.keys() {
             if let Some(node) = self.cluster_view.get(node_id) {
-                if (node.slots.0..=node.slots.1).contains(&slot) {
+                if node.flags.contains(flags::FLAG_MASTER)
+                    && !node.flags.contains(flags::FLAG_FAIL)
+                    && (node.slots.0..=node.slots.1).contains(&slot)
+                {
                     return Some(SocketAddr::new(node.ip.into(), node.port.into()));
                 }
             }

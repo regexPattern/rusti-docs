@@ -3,7 +3,7 @@ use crate::error::Error;
 pub const PREFIX: u8 = b'-';
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct SimpleError(String);
+pub struct SimpleError(pub String);
 
 impl TryFrom<&[u8]> for SimpleError {
     type Error = Error;
