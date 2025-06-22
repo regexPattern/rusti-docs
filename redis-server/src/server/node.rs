@@ -19,6 +19,7 @@ use redis_cmd::Command;
 use redis_cmd::connection::ConnectionCommand;
 use redis_cmd::server::ServerCommand;
 use redis_resp::{SimpleError, SimpleString};
+use rustls::{ServerConnection, StreamOwned};
 use storage::StorageActor;
 
 use crate::config::ClusterConfig;
@@ -31,17 +32,17 @@ use replication::ReplicationActor;
 
 #[derive(Debug)]
 pub struct Node {
-    broker_tx: Sender<PubSubEnvelope>,
+    pub_sub_tx: Sender<PubSubEnvelope>,
     storage_tx: Sender<storage::StorageAction>,
     replication_tx: Sender<ReplicationAction>,
     cluster_tx: Option<Sender<ClusterAction>>,
-    pub_sub_tx: Sender<PublishPayload>,
+    cluster_pub_sub_tx: Sender<PublishPayload>,
     log_tx: Sender<Log>,
 }
 
 impl Node {
     pub fn start(append_file_path: PathBuf, log_tx: Sender<Log>) -> Result<Self, InternalError> {
-        let (broker_tx, pub_sub_tx) = PubSubBroker::start(log_tx.clone());
+        let (pub_sub_tx, cluster_pub_sub_tx) = PubSubBroker::start(log_tx.clone());
 
         let (storage_tx, storage_rx) = mpsc::channel();
 
@@ -55,12 +56,12 @@ impl Node {
         )?;
 
         Ok(Self {
-            broker_tx,
+            pub_sub_tx,
             storage_tx,
             replication_tx,
             cluster_tx: None,
             log_tx,
-            pub_sub_tx: pub_sub_tx,
+            cluster_pub_sub_tx,
         })
     }
 
@@ -68,7 +69,7 @@ impl Node {
         let cluster_tx = ClusterActor::start(
             config,
             self.storage_tx.clone(),
-            self.pub_sub_tx.clone(),
+            self.cluster_pub_sub_tx.clone(),
             self.log_tx.clone(),
         );
 
@@ -77,8 +78,11 @@ impl Node {
         Ok(())
     }
 
-    pub fn handle_client(&self, mut client: TcpStream) -> Result<(), InternalError> {
-        let mut reader = BufReader::new(&mut client);
+    pub fn handle_client(
+        &self,
+        mut stream: StreamOwned<ServerConnection, TcpStream>,
+    ) -> Result<(), InternalError> {
+        let mut reader = BufReader::new(&mut stream);
 
         let bytes = match reader.fill_buf() {
             Ok(bytes) if !bytes.is_empty() => bytes,
@@ -99,14 +103,14 @@ impl Node {
         match cmd {
             Ok(cmd) => {
                 self.log_tx.send(log::info!("procesando comando {cmd}"))?;
-                self.execute_command(client, cmd)?;
+                self.execute_command(stream, cmd)?;
                 Ok(())
             }
             Err(err) => {
                 self.log_tx
                     .send(log::info!("comando recibido es inválido {err}"))?;
 
-                client
+                stream
                     .write_all(&Vec::from(SimpleError::from(err)))
                     .map_err(InternalError::StreamWrite)?;
 
@@ -115,7 +119,11 @@ impl Node {
         }
     }
 
-    fn execute_command(&self, mut client: TcpStream, cmd: Command) -> Result<(), InternalError> {
+    fn execute_command(
+        &self,
+        mut stream: StreamOwned<ServerConnection, TcpStream>,
+        cmd: Command,
+    ) -> Result<(), InternalError> {
         let (reply_tx, reply_rx) = mpsc::channel();
 
         match cmd {
@@ -134,7 +142,7 @@ impl Node {
                                 .send(log::info!("redirigiendo cliente a nodo correspondiente"))
                                 .unwrap();
 
-                            client
+                            stream
                                 .write_all(&moved_err)
                                 .map_err(InternalError::StreamWrite)?;
 
@@ -148,14 +156,14 @@ impl Node {
                     .unwrap();
 
                 if let Ok(reply) = reply_rx.recv() {
-                    client
+                    stream
                         .write_all(&reply)
                         .map_err(InternalError::StreamWrite)?;
                 }
             }
             Command::PubSub(cmd) => {
-                self.broker_tx.send(PubSubEnvelope {
-                    client: client.try_clone().unwrap(),
+                self.pub_sub_tx.send(PubSubEnvelope {
+                    stream,
                     cmd,
                     cluster_tx: self.cluster_tx.clone().unwrap(),
                 })?;
@@ -165,7 +173,7 @@ impl Node {
                     cluster_tx.send(ClusterAction::ClientCommand { cmd, reply_tx })?;
 
                     if let Ok(reply) = reply_rx.recv() {
-                        client
+                        stream
                             .write_all(&reply)
                             .map_err(InternalError::StreamWrite)?;
                     }
@@ -178,7 +186,9 @@ impl Node {
             Command::Server(cmd) => match cmd {
                 ServerCommand::Sync(_) => {
                     self.replication_tx
-                        .send(ReplicationAction::SyncReplica { stream: client })
+                        .send(ReplicationAction::SyncReplica {
+                            stream: stream.into_parts().1,
+                        })
                         .unwrap();
                 }
             },
@@ -191,7 +201,7 @@ impl Node {
                         Vec::from(SimpleString::from("PONG"))
                     };
 
-                    client
+                    stream
                         .write_all(&reply)
                         .map_err(InternalError::StreamWrite)?;
                 }

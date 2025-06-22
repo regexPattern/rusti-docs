@@ -16,8 +16,16 @@ use std::{
 use error::InternalError;
 use log::Log;
 use node::Node;
+use rustls::{
+    ServerConfig, StreamOwned,
+    pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject},
+    server::ServerConnection,
+};
 
-use crate::{config::Config, thread_pool::ThreadPool};
+use crate::{
+    config::{Config, TlsConfig},
+    thread_pool::ThreadPool,
+};
 
 #[derive(Debug)]
 pub struct Server {
@@ -25,6 +33,7 @@ pub struct Server {
     port: u16,
     thread_pool: ThreadPool,
     node: Arc<Node>,
+    tls_config: Option<TlsConfig>,
     logger_tx: Sender<Log>,
 }
 
@@ -47,6 +56,7 @@ impl Server {
             port: config.port,
             thread_pool: ThreadPool::new(config.io_threads),
             node: Arc::new(node),
+            tls_config: config.tls,
             logger_tx,
         })
     }
@@ -86,6 +96,30 @@ impl Server {
         self.logger_tx
             .send(log::info!("servidor escuchando clientes en {:?}", addr))?;
 
+        let tls_config = if let Some(tls_config) = self.tls_config {
+            let certs = CertificateDer::pem_file_iter(tls_config.cert_file)
+                .unwrap()
+                .map(|cert| cert.unwrap())
+                .collect();
+
+            let private_key = PrivateKeyDer::from_pem_file(tls_config.key_file).unwrap();
+
+            ServerConfig::builder()
+                .with_no_client_auth()
+                .with_single_cert(certs, private_key)
+                .unwrap()
+        } else {
+            ServerConfig::builder()
+                .with_no_client_auth()
+                .with_single_cert(
+                    vec![CertificateDer::from_slice(&[])],
+                    PrivateKeyDer::from_pem_file("../../test-tls/server.key").unwrap(),
+                )
+                .unwrap()
+        };
+
+        let tls_config = Arc::new(tls_config);
+
         for stream in listener.incoming() {
             let stream = match stream {
                 Ok(conn) => conn,
@@ -97,9 +131,13 @@ impl Server {
 
             let logger_tx = self.logger_tx.clone();
             let node = Arc::clone(&self.node);
+            let tls_config = Arc::clone(&tls_config);
 
             self.thread_pool.execute(move || {
-                if let Err(err) = node.handle_client(stream) {
+                let tls_stream =
+                    StreamOwned::new(ServerConnection::new(tls_config).unwrap(), stream);
+
+                if let Err(err) = node.handle_client(tls_stream) {
                     logger_tx.send(log::error!("{err}")).unwrap();
                 }
             })?;
