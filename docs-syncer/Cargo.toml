@@ -8,3 +8,5 @@ chrono = "0.4.41"
 log = { path = "../log" }
 redis_cmd = { path = "../redis-cmd" }
 redis_resp = { path = "../redis-resp" }
+rustls = "0.23.28"
+webpki-roots = "1.0.1"

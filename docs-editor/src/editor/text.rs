@@ -1,4 +1,4 @@
-use eframe::egui::{self, Widget};
+use eframe::egui::{self, TextEdit, Widget};
 
 #[derive(Debug)]
 pub struct TextEditor<'c> {
@@ -7,6 +7,6 @@ pub struct TextEditor<'c> {
 
 impl Widget for TextEditor<'_> {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
-        ui.text_edit_multiline(self.content)
+        ui.add_sized([512.0, 256.0], TextEdit::multiline(self.content))
     }
 }

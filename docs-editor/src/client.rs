@@ -12,23 +12,31 @@ use redis_resp::{BulkString, RespDataType};
 
 use crate::Error;
 
-pub fn send_command(cmd: Command, addr: SocketAddr) -> Result<RespDataType, Error> {
-    let mut client_stream = TcpStream::connect(addr).map_err(Error::OpenConn)?;
+pub fn send_command(cmd: Command, db_addr: SocketAddr) -> Result<RespDataType, Error> {
+    let mut slot_addr = db_addr;
+    let cmd = Vec::from(cmd);
 
-    client_stream
-        .write_all(&Vec::from(cmd))
-        .map_err(Error::SendCommand)?;
+    loop {
+        let mut stream = TcpStream::connect(slot_addr).unwrap();
+        stream.write_all(&cmd).unwrap();
 
-    client_stream
-        .shutdown(Shutdown::Write)
-        .map_err(Error::SendCommand)?;
+        stream.shutdown(Shutdown::Write).unwrap();
 
-    let mut reply_buffer = Vec::new();
-    client_stream
-        .read_to_end(&mut reply_buffer)
-        .map_err(Error::ReadReply)?;
+        let mut buffer = Vec::new();
+        stream.read_to_end(&mut buffer).unwrap();
 
-    Ok(RespDataType::try_from(reply_buffer.as_slice())?)
+        let reply = RespDataType::try_from(buffer.as_slice()).unwrap();
+
+        if let RespDataType::SimpleError(err) = reply {
+            let mut err = err.0.splitn(3, " ");
+            let redir_slot = err.nth(1).unwrap().parse().unwrap();
+            let redir_addr = err.next().unwrap().parse().unwrap();
+            slot_addr = SocketAddr::new(redir_slot, redir_addr);
+            continue;
+        } else {
+            return Ok(reply);
+        }
+    }
 }
 
 pub fn read_resp_map(

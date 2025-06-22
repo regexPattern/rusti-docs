@@ -6,7 +6,10 @@ use std::{
     collections::{HashMap, HashSet},
     io::{BufReader, prelude::*},
     net::{Ipv4Addr, Shutdown, SocketAddr, TcpStream},
-    sync::mpsc::{self, Sender},
+    sync::{
+        Arc,
+        mpsc::{self, Sender},
+    },
     thread::{self, JoinHandle},
 };
 
@@ -67,9 +70,12 @@ pub enum DocsSyncerAction {
 impl DocsSyncer {
     pub fn new() -> Result<Self, Error> {
         let db_addr = SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), 7000);
+        let base_stream = TcpStream::connect(db_addr).map_err(Error::ConnectionError)?;
 
         Ok(Self {
             db_addr,
+            base_stream,
+            tls_conn,
             docs_stream: TcpStream::connect(db_addr).map_err(Error::ConnectionError)?,
             connected_clients: HashMap::new(),
         })
@@ -77,7 +83,6 @@ impl DocsSyncer {
 
     pub fn start(mut self) -> Result<Vec<JoinHandle<Result<(), Error>>>, Error> {
         let db_addr = self.db_addr;
-
         let docs_stream = self
             .docs_stream
             .try_clone()
@@ -150,7 +155,13 @@ impl DocsSyncer {
         let cmd = Command::Storage(StorageCommand::HSet(HSet {
             key: "docs_ids".into(),
             field_value_pairs: vec![doc_id.clone(), doc_basename],
-        }));
+        })));
+
+        let mut slot_addr = self.db_addr;
+
+        loop {
+            let mut stream = TcpStream::connect(slot_addr).unwrap();
+            stream.write_all(&cmd).unwrap();
 
         stream
             .write_all(&Vec::from(cmd))
@@ -158,10 +169,25 @@ impl DocsSyncer {
 
         let mut stream = TcpStream::connect(self.db_addr).map_err(Error::ConnectionError)?;
 
-        let cmd = Command::Storage(StorageCommand::HSet(HSet {
+            let reply = RespDataType::try_from(buffer.as_slice())
+                .map_err(|_| Error::InvalidRespReply)
+                .unwrap();
+
+            if let RespDataType::SimpleError(err) = reply {
+                let mut err = err.0.splitn(3, " ");
+                let redir_slot = err.nth(1).unwrap().parse().unwrap();
+                let redir_addr = err.next().unwrap().parse().unwrap();
+                slot_addr = SocketAddr::new(redir_slot, redir_addr);
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        let cmd = Vec::from(Command::Storage(StorageCommand::HSet(HSet {
             key: "docs_ts".into(),
             field_value_pairs: vec![doc_id, Local::now().to_rfc3339().into()],
-        }));
+        })));
 
         stream
             .write_all(&Vec::from(cmd))
@@ -238,43 +264,62 @@ impl DocsSyncer {
     fn get_spreadsheet_content(&self, doc_id: &str) -> BulkString {
         let mut stream = TcpStream::connect(self.db_addr).unwrap();
 
-        let cmd = Command::Storage(StorageCommand::HGetAll(HGetAll { key: doc_id.into() }));
+        let cells = loop {
+            let mut stream = TcpStream::connect(slot_addr).unwrap();
+            stream.write_all(&cmd).unwrap();
 
-        stream.write_all(&Vec::from(cmd)).unwrap();
+            stream
+                .shutdown(Shutdown::Write)
+                .map_err(Error::ConnectionError)
+                .unwrap();
 
-        stream.shutdown(Shutdown::Write).unwrap();
+            let mut buffer = Vec::new();
+            stream
+                .read_to_end(&mut buffer)
+                .map_err(Error::ReadError)
+                .unwrap();
 
-        let mut buffer = Vec::new();
-        stream.read_to_end(&mut buffer).unwrap();
+            let reply = RespDataType::try_from(buffer.as_slice())
+                .map_err(|_| Error::InvalidRespReply)
+                .unwrap();
 
-        let content = match RespDataType::try_from(buffer.as_slice()).unwrap() {
-            RespDataType::Map(content) => {
-                let mut cells: [[String; 10]; 10] = Default::default();
+            match reply {
+                RespDataType::Map(content) => {
+                    let mut cells: [[String; 10]; 10] = Default::default();
 
-                for (i, v) in content {
-                    let (i, v) = match (i, v) {
-                        (RespDataType::BulkString(i), RespDataType::BulkString(v)) => {
-                            (i.to_string(), v.to_string())
-                        }
-                        _ => todo!(),
-                    };
+                    for (i, v) in content {
+                        let (i, v) = match (i, v) {
+                            (RespDataType::BulkString(i), RespDataType::BulkString(v)) => {
+                                (i.to_string(), v.to_string())
+                            }
+                            _ => todo!(),
+                        };
 
-                    let (fil, col) = i.split_once(',').unwrap();
-                    let row: usize = fil.parse().unwrap();
-                    let col: usize = col.parse().unwrap();
+                        let (fil, col) = i.split_once(',').unwrap();
+                        let row: usize = fil.parse().unwrap();
+                        let col: usize = col.parse().unwrap();
 
-                    cells[row][col] = v.to_string();
+                        cells[row][col] = v.to_string();
+                    }
+
+                    break cells;
                 }
+                RespDataType::Null => Default::default(),
+                RespDataType::SimpleError(err) => {
+                    let mut err = err.0.splitn(3, " ");
+                    let redir_slot = err.nth(1).unwrap().parse().unwrap();
+                    let redir_addr = err.next().unwrap().parse().unwrap();
+                    slot_addr = SocketAddr::new(redir_slot, redir_addr);
 
-                cells
+                    continue;
+                }
+                _ => unreachable!(),
             }
-            RespDataType::Null => Default::default(),
-            _ => todo!(),
         };
 
-        let values: Vec<_> = content.iter().flat_map(|row| row.iter()).collect();
+        let cells: Vec<_> = cells.iter().flat_map(|row| row.iter()).collect();
 
-        values
+        cells
             .iter()
             .map(|v| v.to_string())
             .collect::<Vec<_>>()
@@ -432,8 +477,6 @@ impl DocsSyncer {
         actions_tx: &Sender<DocsSyncerAction>,
     ) -> Result<(), Error> {
         let reply = RespDataType::try_from(bytes).map_err(|_| Error::InvalidRespReply)?;
-
-        dbg!(&reply);
 
         let mut payload = match reply {
             RespDataType::Array(payload) => payload.into_iter().filter_map(|e| {
