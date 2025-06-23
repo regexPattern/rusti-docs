@@ -23,10 +23,6 @@ name = "accesskit"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3d3b8f9bae46a948369bc4a03e815d4ed6d616bd00de4051133a5019dc31c5a"
-dependencies = [
- "enumn",
- "serde",
-]
 
 [[package]]
 name = "accesskit_atspi_common"
@@ -129,7 +125,6 @@ dependencies = [
  "cfg-if",
  "getrandom 0.3.3",
  "once_cell",
- "serde",
  "version_check",
  "zerocopy",
 ]
@@ -471,7 +466,7 @@ dependencies = [
  "bitflags 2.9.1",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools",
  "lazy_static",
  "lazycell",
  "log 0.4.27",
@@ -883,7 +878,6 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "eframe",
- "egui-data-table",
  "egui_extras",
  "log 0.1.0",
  "redis_cmd",
@@ -899,8 +893,6 @@ dependencies = [
  "log 0.1.0",
  "redis_cmd",
  "redis_resp",
- "rustls",
- "webpki-roots",
 ]
 
 [[package]]
@@ -938,7 +930,6 @@ checksum = "bc4feb366740ded31a004a0e4452fbf84e80ef432ecf8314c485210229672fd1"
 dependencies = [
  "bytemuck",
  "emath",
- "serde",
 ]
 
 [[package]]
@@ -991,21 +982,6 @@ dependencies = [
  "log 0.4.27",
  "nohash-hasher",
  "profiling",
- "serde",
-]
-
-[[package]]
-name = "egui-data-table"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a429de235de6630ded8c23adfbed0eb917df4f2a5a2464aaa08ef1cdd5c6f295"
-dependencies = [
- "egui",
- "egui_extras",
- "itertools 0.14.0",
- "serde",
- "tap",
- "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -1060,7 +1036,6 @@ dependencies = [
  "log 0.4.27",
  "mime_guess2",
  "profiling",
- "serde",
 ]
 
 [[package]]
@@ -1094,7 +1069,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e4cadcff7a5353ba72b7fea76bf2122b5ebdbc68e8155aa56dfdea90083fe1b"
 dependencies = [
  "bytemuck",
- "serde",
 ]
 
 [[package]]
@@ -1146,17 +1120,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "enumn"
-version = "0.1.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f9ed6b3789237c8a0c1c505af1c7eb2c560df6186f01b098c3a1064ea532f38"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "epaint"
 version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1172,7 +1135,6 @@ dependencies = [
  "nohash-hasher",
  "parking_lot",
  "profiling",
- "serde",
 ]
 
 [[package]]
@@ -1749,15 +1711,6 @@ name = "itertools"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
 dependencies = [
  "either",
 ]
@@ -2774,7 +2727,6 @@ dependencies = [
  "redis_cmd",
  "redis_resp",
  "rustls",
- "rustls-pemfile",
  "uuid",
 ]
 
@@ -2896,15 +2848,6 @@ dependencies = [
  "rustls-webpki",
  "subtle",
  "zeroize",
-]
-
-[[package]]
-name = "rustls-pemfile"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dce314e5fee3f39953d46bb63bb8a46d40c2f8fb7cc5a3b6cab2bde9721d6e50"
-dependencies = [
- "rustls-pki-types",
 ]
 
 [[package]]
@@ -3182,12 +3125,6 @@ dependencies = [
  "quote",
  "syn",
 ]
-
-[[package]]
-name = "tap"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tempfile"
@@ -3687,15 +3624,6 @@ dependencies = [
  "objc2-foundation 0.3.1",
  "url",
  "web-sys",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8782dd5a41a24eed3a4f40b606249b3e236ca61adf1f25ea4d45c73de122b502"
-dependencies = [
- "rustls-pki-types",
 ]
 
 [[package]]

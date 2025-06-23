@@ -12,5 +12,4 @@ rand = "0.9.1"
 redis_cmd = { path = "../redis-cmd" }
 redis_resp = { path = "../redis-resp" }
 rustls = { version = "0.23.28" }
-rustls-pemfile = "2.2.0"
 uuid = { version = "1.16.0", features = ["v4"] }

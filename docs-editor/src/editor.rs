@@ -1,5 +1,4 @@
 mod doc;
-mod error;
 mod patch;
 mod spreadsheet;
 mod text;
