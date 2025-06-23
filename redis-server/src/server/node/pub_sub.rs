@@ -2,17 +2,12 @@ mod error;
 
 use std::{
     collections::HashMap,
-    io::{
-        self, BufReader,
-        prelude::{BufRead, *},
-    },
-    net::TcpStream,
+    io::{self, BufReader, Write, prelude::BufRead},
     sync::{
         Arc, Mutex,
         mpsc::{self, Receiver, Sender},
     },
     thread,
-    time::Duration,
 };
 
 pub use error::InternalError;
@@ -20,10 +15,12 @@ use error::OperationError;
 use log::Log;
 use redis_cmd::{Command, pub_sub::*};
 use redis_resp::{Array, BulkString, Integer, RespDataType, SimpleError};
-use rustls::{ServerConnection, StreamOwned};
 use uuid::Uuid;
 
-use crate::server::node::cluster::{ClusterAction, message::payload::PublishPayload};
+use crate::server::{
+    ClientStream,
+    node::cluster::{ClusterAction, message::payload::PublishPayload},
+};
 
 type SubsRegister = HashMap<BulkString, HashMap<Uuid, Sender<Vec<u8>>>>;
 
@@ -34,19 +31,10 @@ pub struct PubSubBroker {
 }
 
 #[derive(Debug)]
-pub enum PubSubAction {
-    ClientCommand {
-        stream: StreamOwned<ServerConnection, TcpStream>,
-        cmd: PubSubCommand,
-        reply_tx: Sender<Vec<u8>>,
-    },
-}
-
-#[derive(Debug)]
 pub struct PubSubEnvelope {
-    pub stream: StreamOwned<ServerConnection, TcpStream>,
+    pub stream: ClientStream,
     pub cmd: PubSubCommand,
-    pub cluster_tx: Sender<ClusterAction>,
+    pub cluster_tx: Option<Sender<ClusterAction>>,
 }
 
 #[derive(Debug)]
@@ -56,18 +44,20 @@ struct Subscriber {
 }
 
 impl PubSubBroker {
-    pub fn start(logger_tx: Sender<Log>) -> (Sender<PubSubEnvelope>, Sender<PublishPayload>) {
+    /// Inicia el broker de Pub/Sub y lanza los threads para procesar mensajes y publicaciones.
+    /// Devuelve los canales para enviar Envelopes de PubSub y mensajes de publish.
+    pub fn start(log_tx: Sender<Log>) -> (Sender<PubSubEnvelope>, Sender<PublishPayload>) {
         let (tx, rx) = mpsc::channel();
 
         let mut broker = Self {
             subs_reg: Arc::new(Mutex::new(HashMap::new())),
-            logger_tx: logger_tx.clone(),
+            logger_tx: log_tx.clone(),
         };
 
         let (publish_tx, publish_rx) = mpsc::channel::<PublishPayload>();
 
         let reg = broker.subs_reg.clone();
-        let logger_tx_clone = logger_tx.clone();
+        let logger_tx_clone = log_tx.clone();
 
         thread::spawn(move || {
             for msg in publish_rx {
@@ -78,7 +68,7 @@ impl PubSubBroker {
                     logger_tx_clone.clone(),
                 )
                 .unwrap_or_else(|err| {
-                    logger_tx_clone.send(log::error!("{err}")).unwrap();
+                    let _ = logger_tx_clone.send(log::error!("{err}"));
                     Vec::new()
                 });
             }
@@ -87,7 +77,7 @@ impl PubSubBroker {
         thread::spawn(move || {
             while let Ok(envel) = rx.recv() {
                 if let Err(err) = broker.process(envel) {
-                    logger_tx.send(log::error!("{err}")).unwrap();
+                    let _ = log_tx.send(log::error!("{err}"));
                     break;
                 }
             }
@@ -96,6 +86,8 @@ impl PubSubBroker {
         (tx, publish_tx)
     }
 
+    /// Procesa un Envelope PubSub recibido, gestionando suscripciones, publicaciones y comandos.
+    /// Maneja la lógica de subscribe, publish, unsubscribe y consultas de canales.
     pub fn process(&mut self, mut envel: PubSubEnvelope) -> Result<(), InternalError> {
         match envel.cmd {
             PubSubCommand::Subscribe(Subscribe { channels }) => {
@@ -130,7 +122,7 @@ impl PubSubBroker {
 
     fn keep_alive(
         &mut self,
-        stream: StreamOwned<ServerConnection, TcpStream>,
+        stream: ClientStream,
         logger_tx: Sender<Log>,
     ) -> Result<Subscriber, InternalError> {
         let (reply_tx, reply_rx) = mpsc::channel();
@@ -167,32 +159,37 @@ impl PubSubBroker {
     fn start_pub_sub_state(
         subs_reg: Arc<Mutex<SubsRegister>>,
         sub_id: Uuid,
-        mut stream: StreamOwned<ServerConnection, TcpStream>,
+        stream: ClientStream,
         sub_reply_tx: Sender<Vec<u8>>,
         sub_reply_rx: Receiver<Vec<u8>>,
-        logger_tx: Sender<Log>,
+        log_tx: Sender<Log>,
     ) -> Result<(), InternalError> {
-        stream.sock.set_nonblocking(true).unwrap();
+        let mut reader = BufReader::new(stream);
+
+        match reader.get_mut() {
+            ClientStream::Encrypted(owned) => owned.sock.set_nonblocking(true).unwrap(),
+            ClientStream::Unencrypted(tcp) => tcp.set_nonblocking(true).unwrap(),
+        }
 
         loop {
             if let Ok(message) = sub_reply_rx.try_recv() {
-                if let Err(err) = stream.write_all(&message) {
-                    logger_tx
-                        .send(log::warn!(
-                            "error mandando mensaje a cliente {sub_id}: {err}"
-                        ))
-                        .unwrap();
+                if let Err(err) = reader.get_mut().write_all(&message) {
+                    let _ = log_tx.send(log::warn!(
+                        "error mandando mensaje a cliente {sub_id}: {err}"
+                    ));
                 }
             }
 
-            let _ = stream.conn.complete_io(&mut stream.sock);
+            if let ClientStream::Encrypted(owned) = reader.get_mut() {
+                let _ = owned.conn.complete_io(&mut owned.sock);
+            }
 
-            match stream.fill_buf() {
+            match reader.fill_buf() {
                 Ok(bytes) if !bytes.is_empty() => {
                     let cmd = Command::try_from(bytes);
 
                     let length = bytes.len();
-                    stream.consume(length);
+                    reader.consume(length);
 
                     match cmd {
                         Ok(cmd) => {
@@ -201,11 +198,11 @@ impl PubSubBroker {
                                 sub_id,
                                 sub_reply_tx.clone(),
                                 cmd,
-                                &logger_tx,
+                                &log_tx,
                             )?;
                         }
                         Err(err) => {
-                            logger_tx.send(log::info!(
+                            log_tx.send(log::info!(
                                 "comando enviado por cliente {sub_id} es invalido",
                             ))?;
 
@@ -219,21 +216,18 @@ impl PubSubBroker {
                     io::ErrorKind::WouldBlock => continue,
                     io::ErrorKind::ConnectionReset => break,
                     _ => {
-                        break logger_tx
-                            .send(log::warn!(
-                                "error escuchando stream del cliente {sub_id}: {err}",
-                            ))
-                            .unwrap();
+                        let _ = log_tx.send(log::warn!(
+                            "error escuchando stream del cliente {sub_id}: {err}",
+                        ));
+                        break;
                     }
                 },
             }
         }
 
-        logger_tx
-            .send(log::warn!("stream del cliente desconectado {sub_id}"))
-            .unwrap();
+        let _ = log_tx.send(log::warn!("stream del cliente desconectado {sub_id}"));
 
-        Self::prune_sub(&subs_reg, sub_id, &logger_tx).unwrap();
+        Self::prune_sub(&subs_reg, sub_id, &log_tx).unwrap();
 
         Ok(())
     }
@@ -302,7 +296,7 @@ impl PubSubBroker {
         &self,
         chan_name: &BulkString,
         msg: BulkString,
-        cluster_tx: Sender<ClusterAction>,
+        cluster_tx: Option<Sender<ClusterAction>>,
     ) -> Result<Vec<u8>, InternalError> {
         let subs_reg = self.subs_reg.lock()?;
         let mut n_chan_subs = 0;
@@ -321,17 +315,21 @@ impl PubSubBroker {
             }
         }
 
-        cluster_tx
-            .send(ClusterAction::BroadcastPublish {
-                channel: chan_name.clone(),
-                message: msg.clone(),
-            })
-            .unwrap();
-
         self.logger_tx.send(log::info!(
             "publicados {} bytes al channel {chan_name}",
             msg.len()
         ))?;
+
+        if let Some(cluster_tx) = cluster_tx {
+            let _ = cluster_tx.send(ClusterAction::BroadcastPublish {
+                channel: chan_name.clone(),
+                message: msg.clone(),
+            });
+
+            self.logger_tx.send(log::debug!(
+                "propagando mensaje de publish a todo el cluster"
+            ))?;
+        }
 
         Ok(Integer::from(n_chan_subs as i64).into())
     }
@@ -361,7 +359,7 @@ impl PubSubBroker {
         }
 
         logger_tx.send(log::info!(
-            "Republicados {} bytes al channel {chan_name} que vienen de otro nodo",
+            "republicados {} bytes al channel {chan_name}",
             msg.len()
         ))?;
 
@@ -469,7 +467,7 @@ impl PubSubBroker {
     }
 
     fn fake_unsubscribe(
-        mut stream: StreamOwned<ServerConnection, TcpStream>,
+        mut stream: ClientStream,
         channels: Vec<BulkString>,
     ) -> Result<(), InternalError> {
         if channels.is_empty() {

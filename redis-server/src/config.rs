@@ -1,8 +1,6 @@
 mod error;
 
-use std::collections::HashMap;
-use std::net::Ipv4Addr;
-use std::path::PathBuf;
+use std::{collections::HashMap, net::Ipv4Addr, path::PathBuf};
 
 use error::Error;
 
@@ -90,7 +88,7 @@ impl Config {
             let appendfilename = appendfilename.trim_matches('"');
             config.appendfilename = appendfilename.into();
         }
-        if opts.get("tls-port").is_some() {
+        if opts.contains_key("tls-port") {
             if let (Some(cert_file), Some(key_file), Some(ca_cert_file)) = (
                 opts.get("tls-cert-file"),
                 opts.get("tls-key-file"),

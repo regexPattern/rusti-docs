@@ -11,6 +11,7 @@ use std::{
     thread,
 };
 
+pub use doc::{DocKind, DocMetadata};
 use eframe::egui::{self};
 use redis_cmd::{
     Command,
@@ -18,12 +19,9 @@ use redis_cmd::{
 };
 use redis_resp::{BulkString, RespDataType};
 
-use crate::editor::{
-    doc::DocContent, error::Error, spreadsheet::SpreadSheetEditor, text::TextEditor,
-};
+use crate::editor::{doc::DocContent, spreadsheet::SpreadSheetEditor, text::TextEditor};
 
-pub use doc::{DocKind, DocMetadata};
-
+/// Editor de documentos de texto y hojas de cálculo.
 #[derive(Debug)]
 pub struct Editor {
     db_addr: SocketAddr,
@@ -42,42 +40,48 @@ enum EditorAction {
 }
 
 impl Editor {
-    pub fn new(db_addr: SocketAddr, md: DocMetadata) -> Self {
+    /// Crea un nuevo editor para el documento especificado.
+    /// Inicializa la suscripción y obtiene el contenido inicial.
+    pub fn new(db_addr: SocketAddr, md: DocMetadata) -> Result<Self, crate::Error> {
         print!("{}", log::info!("accediendo documento {}", md.id));
 
         let client_id = std::process::id().to_string();
         let (actions_tx, actions_rx) = mpsc::channel();
 
-        Self::subscribe_to_doc(db_addr, client_id.clone(), &md, actions_tx);
-        Self::fetch_doc(db_addr, client_id.clone(), &md);
+        Self::subscribe_to_document(db_addr, client_id.clone(), &md, actions_tx)?;
+        Self::fetch_document(db_addr, client_id.clone(), &md)?;
 
         let content = match md.kind {
             DocKind::Text => DocContent::Text("".to_string()),
             DocKind::SpreadSheet => DocContent::SpreadSheet(Default::default()),
         };
 
-        Self {
+        Ok(Self {
             db_addr,
             client_id,
             md,
             editing_content: content,
             peers: Vec::new(),
             actions_rx,
-        }
+        })
     }
 
-    fn subscribe_to_doc(
+    fn subscribe_to_document(
         db_addr: SocketAddr,
         client_id: String,
         md: &DocMetadata,
         actions_tx: Sender<EditorAction>,
-    ) {
+    ) -> Result<(), crate::Error> {
         let cmd = Command::PubSub(PubSubCommand::Subscribe(Subscribe {
             channels: vec![BulkString::from(&md.id)],
         }));
 
-        let mut stream = TcpStream::connect(db_addr).unwrap();
-        stream.write_all(&Vec::from(cmd)).unwrap();
+        let mut stream = TcpStream::connect(db_addr).map_err(crate::Error::OpenConn)?;
+        stream
+            .write_all(&Vec::from(cmd))
+            .map_err(crate::Error::SendCommand)?;
+
+        let doc_id = md.id.clone();
 
         thread::spawn(move || {
             let mut buffer = BufReader::new(&mut stream);
@@ -85,8 +89,8 @@ impl Editor {
             loop {
                 match buffer.fill_buf() {
                     Ok(bytes) if !bytes.is_empty() => {
-                        if let Err(_) =
-                            Self::handle_doc_listener_msg(&client_id, bytes, &actions_tx)
+                        if Self::handle_document_listener_message(&client_id, bytes, &actions_tx)
+                            .is_err()
                         {
                             return;
                         }
@@ -94,18 +98,32 @@ impl Editor {
                         let length = bytes.len();
                         buffer.consume(length);
                     }
-                    Ok(_) => todo!(),
-                    Err(_) => todo!(),
+                    Ok(_) => {
+                        print!(
+                            "{}",
+                            log::warn!("desconectado stream de documento: {doc_id}")
+                        );
+                        return;
+                    }
+                    Err(_) => {
+                        print!(
+                            "{}",
+                            log::error!("error leyendo stream de documentos: {doc_id}")
+                        );
+                        return;
+                    }
                 }
             }
         });
+
+        Ok(())
     }
 
-    fn handle_doc_listener_msg(
+    fn handle_document_listener_message(
         client_id: &str,
         bytes: &[u8],
         actions_tx: &Sender<EditorAction>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), crate::Error> {
         let mut payload = match RespDataType::try_from(bytes).unwrap() {
             RespDataType::Array(payload) => payload.into_iter().filter_map(|e| {
                 if let RespDataType::BulkString(e) = e {
@@ -114,13 +132,13 @@ impl Editor {
                     None
                 }
             }),
-            _ => todo!(),
+            _ => unreachable!(),
         };
 
         let doc_id = payload.nth(1).unwrap();
 
         if let Some(payload) = payload.next() {
-            Self::handle_doc_action(client_id, payload.to_string(), actions_tx)?;
+            Self::handle_document_action(client_id, payload.to_string(), actions_tx)?;
         } else {
             print!("{}", log::info!("suscrito a channel de documento {doc_id}"));
         }
@@ -128,12 +146,12 @@ impl Editor {
         Ok(())
     }
 
-    fn handle_doc_action(
+    fn handle_document_action(
         client_id: &str,
         payload: String,
         actions_tx: &Sender<EditorAction>,
-    ) -> Result<(), Error> {
-        Ok(match payload.split_once('@').unwrap() {
+    ) -> Result<(), crate::Error> {
+        match payload.split_once('@').ok_or(crate::Error::MissingData)? {
             ("FETCH_ACK", payload) => {
                 let mut payload = payload.splitn(3, '@').map(String::from);
                 let recepient_client_id = payload.next().unwrap();
@@ -141,29 +159,35 @@ impl Editor {
                 if recepient_client_id == client_id {
                     let kind = payload.next().unwrap();
                     let content = payload.next().unwrap();
-                    actions_tx.send(EditorAction::FetchContent { kind, content })?;
+                    let _ = actions_tx.send(EditorAction::FetchContent { kind, content });
                 }
             }
             ("CLIENTS", payload) => {
-                actions_tx.send(EditorAction::UpdateConnectedClients {
+                let _ = actions_tx.send(EditorAction::UpdateConnectedClients {
                     peers: payload.split(",").map(String::from).collect(),
-                })?;
+                });
             }
             ("PATCH", payload) => {
                 let mut payload = payload.splitn(3, '@').map(String::from);
-                let sender_id = payload.next().unwrap();
+                let sender_id = payload.next().ok_or(crate::Error::MissingData)?;
 
                 if sender_id != client_id {
-                    let kind = payload.next().unwrap();
-                    let content = payload.next().unwrap();
-                    actions_tx.send(EditorAction::PatchContent { kind, content })?;
+                    let kind = payload.next().ok_or(crate::Error::MissingData)?;
+                    let content = payload.next().ok_or(crate::Error::MissingData)?;
+                    let _ = actions_tx.send(EditorAction::PatchContent { kind, content });
                 }
             }
             _ => {}
-        })
+        };
+
+        Ok(())
     }
 
-    fn fetch_doc(db_addr: SocketAddr, client_id: String, md: &DocMetadata) {
+    fn fetch_document(
+        db_addr: SocketAddr,
+        client_id: String,
+        md: &DocMetadata,
+    ) -> Result<(), crate::Error> {
         let msg = format!("FETCH_REQ@{}@{}@{}", client_id, md.kind, md.basename);
 
         let cmd = Command::PubSub(PubSubCommand::Publish(Publish {
@@ -171,9 +195,11 @@ impl Editor {
             message: msg.into(),
         }));
 
-        let mut stream = TcpStream::connect(db_addr).unwrap();
+        let mut stream = TcpStream::connect(db_addr).map_err(crate::Error::OpenConn)?;
 
-        stream.write_all(&Vec::from(cmd)).unwrap();
+        stream
+            .write_all(&Vec::from(cmd))
+            .map_err(crate::Error::SendCommand)?;
 
         print!(
             "{}",
@@ -183,29 +209,33 @@ impl Editor {
                 md.basename
             )
         );
+
+        Ok(())
     }
 
-    fn save_doc(&mut self) {
+    fn save_document(&mut self) -> Result<(), crate::Error> {
         let msg = format!(
             "PATCH@{}@{}@{}",
-            self.client_id,
-            self.md.kind,
-            self.editing_content.to_string()
+            self.client_id, self.md.kind, self.editing_content
         );
 
-        let mut stream = TcpStream::connect(self.db_addr).unwrap();
+        let mut stream = TcpStream::connect(self.db_addr).map_err(crate::Error::OpenConn)?;
 
         let cmd = Command::PubSub(PubSubCommand::Publish(Publish {
             channel: BulkString::from(&self.md.id),
             message: BulkString::from(msg),
         }));
 
-        stream.write_all(&Vec::from(cmd)).unwrap();
+        stream
+            .write_all(&Vec::from(cmd))
+            .map_err(crate::Error::SendCommand)?;
 
         print!(
             "{}",
             log::info!("enviando update de documento {}", self.md.id)
         );
+
+        Ok(())
     }
 
     fn fetch_content(&mut self, doc_kind: String, content: String) {
@@ -222,7 +252,7 @@ impl Editor {
 
                 DocContent::SpreadSheet(cells)
             }
-            _ => todo!(),
+            _ => unreachable!(),
         };
     }
 
@@ -247,17 +277,23 @@ impl Editor {
         }
     }
 
-    fn leave(&self) {
+    fn leave(&self) -> Result<(), crate::Error> {
         let cmd = Command::PubSub(PubSubCommand::Publish(Publish {
             channel: BulkString::from(&self.md.id),
             message: format!("LEAVE@{}", self.client_id).into(),
         }));
 
-        let mut stream = TcpStream::connect(self.db_addr).unwrap();
+        let mut stream = TcpStream::connect(self.db_addr).map_err(crate::Error::OpenConn)?;
 
-        stream.write_all(&Vec::from(cmd)).unwrap();
+        stream
+            .write_all(&Vec::from(cmd))
+            .map_err(crate::Error::SendCommand)?;
+
+        Ok(())
     }
 
+    /// Renderiza la interfaz de usuario del editor y gestiona las acciones.
+    /// Devuelve true si el usuario permanece en el editor.
     pub fn ui(&mut self, ui: &mut egui::Ui) -> bool {
         if let Ok(action) = self.actions_rx.try_recv() {
             match action {
@@ -279,7 +315,7 @@ impl Editor {
 
         ui.vertical(|ui| {
             if ui.link("⬅️ Volver").clicked() {
-                self.leave();
+                self.leave().unwrap();
                 stay_in_editor = false;
             };
 
@@ -314,7 +350,7 @@ impl Editor {
         });
 
         if ui.button("Guardar ✅").clicked() {
-            self.save_doc();
+            self.save_document().unwrap();
         }
 
         stay_in_editor

@@ -1,5 +1,3 @@
-use std::{io::Write, net::TcpStream};
-
 use chrono::Local;
 use redis_cmd::{
     Command,
@@ -7,32 +5,39 @@ use redis_cmd::{
 };
 use redis_resp::BulkString;
 
-use crate::DocsSyncer;
+use crate::{DocsSyncer, error::Error};
 
 impl DocsSyncer {
-    pub fn persist_doc(&self, doc_id: String, doc_kind: String, doc_content: String) {
-        let persist_cmd = match doc_kind.as_str() {
+    /// Persiste el contenido de un documento en la base de datos Redis.
+    /// Actualiza la timestamp de última edición.
+    pub fn persist_document(
+        &self,
+        doc_id: String,
+        doc_kind: String,
+        doc_content: String,
+    ) -> Result<(), Error> {
+        let cmd = match doc_kind.as_str() {
             "TEXT" => self.persist_text_doc_cmd(&doc_id, &doc_content),
             "SPREADSHEET" => self.persist_spreadsheet_doc_cmd(&doc_id, &doc_content),
-            _ => todo!(),
+            _ => unreachable!(),
         };
 
-        let mut stream = TcpStream::connect(self.db_addr).unwrap();
+        let cmd = Vec::from(Command::Storage(cmd));
 
-        stream
-            .write_all(&Vec::from(Command::Storage(persist_cmd)))
-            .unwrap();
+        let mut slot_addr = self.db_addr;
+        let (new_slot, _) = Self::cluster_command(slot_addr, cmd)?;
+        slot_addr = new_slot;
 
-        let mut stream = TcpStream::connect(self.db_addr).unwrap();
-
-        let cmd = Command::Storage(StorageCommand::HSet(HSet {
+        let cmd = Vec::from(Command::Storage(StorageCommand::HSet(HSet {
             key: "docs_ts".into(),
             field_value_pairs: vec![BulkString::from(&doc_id), Local::now().to_rfc3339().into()],
-        }));
+        })));
 
-        stream.write_all(&Vec::from(cmd)).unwrap();
+        let _ = Self::cluster_command(slot_addr, cmd)?;
 
         print!("{}", log::info!("persistido documento {}", doc_id));
+
+        Ok(())
     }
 
     fn persist_text_doc_cmd(&self, doc_id: &str, doc_content: &str) -> StorageCommand {

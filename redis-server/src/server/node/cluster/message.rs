@@ -43,9 +43,8 @@ impl From<&Message> for Vec<u8> {
 mod tests {
     use std::net::Ipv4Addr;
 
-    use crate::server::node::cluster::flags::{self, Flags};
-
     use super::*;
+    use crate::server::node::cluster::flags::{self, Flags};
 
     #[test]
     fn message_se_serializa_y_deserializa_correctamente() {

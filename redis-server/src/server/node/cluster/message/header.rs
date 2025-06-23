@@ -113,17 +113,14 @@ impl From<&MessageHeader> for ClusterNode {
 impl fmt::Debug for MessageHeader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("MessageHeader")
-            .field("id", &hex::encode(&self.id))
+            .field("id", &hex::encode(self.id))
             .field("ip", &self.ip.to_string())
             .field("port", &self.port)
             .field("cluster_port", &self.cluster_port)
             .field("flags", &self.flags.to_string())
             .field("config_epoch", &self.config_epoch)
             .field("slots", &self.slots)
-            .field(
-                "master_id",
-                &self.master_id.and_then(|id| Some(hex::encode(id))),
-            )
+            .field("master_id", &self.master_id.map(hex::encode))
             .finish()
     }
 }
@@ -132,9 +129,8 @@ impl fmt::Debug for MessageHeader {
 mod tests {
     use std::net::Ipv4Addr;
 
-    use crate::server::node::cluster::flags::{self, Flags};
-
     use super::*;
+    use crate::server::node::cluster::flags::{self, Flags};
 
     #[test]
     fn message_header_sin_master_id_se_serializa_y_deserializa_correctamente() {

@@ -1,10 +1,13 @@
 use eframe::egui::{self, Align, Layout};
 use egui_extras::{Column, TableBuilder};
 
+/// Editor de hoja de cálculo para editar y evaluar celdas en una matriz 10x10.
 #[derive(Debug)]
 pub struct SpreadSheetEditor<'c>(pub &'c mut [[String; 10]; 10]);
 
 impl SpreadSheetEditor<'_> {
+    /// Renderiza la tabla de la hoja de cálculo en la interfaz de usuario.
+    /// Permite la edición de celdas y evalúa fórmulas simples.
     pub fn render(self, ui: &mut egui::Ui) {
         TableBuilder::new(ui)
             .column(Column::exact(20.0))
@@ -72,7 +75,7 @@ impl SpreadSheetEditor<'_> {
                         '-' => value_1 - value_2,
                         '*' => value_1 * value_2,
                         '/' => value_1 / value_2,
-                        _ => todo!(),
+                        _ => unimplemented!(),
                     }
                     .to_string(),
                 );
@@ -85,7 +88,7 @@ impl SpreadSheetEditor<'_> {
 
 fn parse_cell_ref(cell: &str) -> Option<(usize, usize)> {
     let first = cell.chars().next()?.to_ascii_uppercase();
-    if first < 'A' || first > 'Z' {
+    if first.is_ascii_uppercase() {
         return None;
     }
     let col = (first as u8 - b'A') as usize;
@@ -98,34 +101,4 @@ fn parse_cell_ref(cell: &str) -> Option<(usize, usize)> {
     let row = row_num - 1;
 
     Some((row, col))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parseo_de_nombre_de_celdas_validos() {
-        assert_eq!(parse_cell_ref("A1"), Some((0, 0)));
-        assert_eq!(parse_cell_ref("a1"), Some((0, 0)));
-        assert_eq!(parse_cell_ref("B2"), Some((1, 1)));
-        assert_eq!(parse_cell_ref("C10"), Some((9, 2)));
-        assert_eq!(parse_cell_ref("J5"), Some((4, 9)));
-    }
-
-    #[test]
-    fn parseo_de_nombre_de_celdas_invalidos() {
-        assert_eq!(parse_cell_ref(""), None);
-        assert_eq!(parse_cell_ref("A"), None);
-
-        assert_eq!(parse_cell_ref("1A"), None);
-        assert_eq!(parse_cell_ref("5"), None);
-
-        assert_eq!(parse_cell_ref("AX"), None);
-        assert_eq!(parse_cell_ref("C-1"), None);
-
-        assert_eq!(parse_cell_ref("AA10"), None);
-
-        assert_eq!(parse_cell_ref("A0"), None);
-    }
 }

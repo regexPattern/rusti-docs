@@ -1,8 +1,7 @@
 use std::{fmt, net::Ipv4Addr, time::UNIX_EPOCH};
 
-use crate::server::node::cluster::{ClusterNode, NodeId, flags::Flags};
-
 use super::MessagePayload;
+use crate::server::node::cluster::{ClusterNode, NodeId, flags::Flags};
 
 const GOSSIP_PAYLOAD_KIND_MEET: u8 = 0;
 const GOSSIP_PAYLOAD_KIND_PING: u8 = 1;
@@ -148,7 +147,7 @@ impl From<&ClusterNode> for GossipNode {
 impl fmt::Debug for GossipNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ClusterNode")
-            .field("id", &hex::encode(&self.id))
+            .field("id", &hex::encode(self.id))
             .field("ip", &self.ip.to_string())
             .field("port", &self.port)
             .field("cluster_port", &self.cluster_port)
@@ -159,9 +158,8 @@ impl fmt::Debug for GossipNode {
 
 #[cfg(test)]
 mod tests {
-    use crate::server::node::cluster::flags;
-
     use super::*;
+    use crate::server::node::cluster::flags;
 
     #[test]
     fn gossiped_node_se_serializa_y_deserializa_correctamente() {

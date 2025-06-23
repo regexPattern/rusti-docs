@@ -1,8 +1,7 @@
 use std::{fmt, num::ParseIntError, str::FromStr};
 
-use crate::Error;
-
 use super::ContentLength;
+use crate::Error;
 
 pub const PREFIX: u8 = b'$';
 

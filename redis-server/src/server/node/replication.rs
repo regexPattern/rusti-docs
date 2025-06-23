@@ -13,6 +13,8 @@ use redis_cmd::{
 
 use crate::server::node::storage::StorageAction;
 
+/// Actor encargado de gestionar la replicación entre nodos Redis.
+/// Mantiene los streams de replicación y coordina la sincronización de réplicas.
 #[derive(Debug)]
 pub struct ReplicationActor {
     replication_streams: Vec<TcpStream>,
@@ -25,6 +27,8 @@ pub enum ReplicationAction {
 }
 
 impl ReplicationActor {
+    /// Inicia el actor de replicación y lanza el hilo de procesamiento de acciones.
+    /// Devuelve el canal para enviar acciones de replicación.
     pub fn start(
         storage_tx: Sender<StorageAction>,
         log_tx: Sender<Log>,
@@ -39,16 +43,13 @@ impl ReplicationActor {
             for action in actions_rx {
                 match action {
                     ReplicationAction::BroadcastCommand { bytes } => {
-                        replication_actor.broadcast_command(&bytes);
+                        replication_actor.broadcast_command(&bytes, &log_tx);
                     }
                     ReplicationAction::SyncReplica {
                         stream: mut replication_stream,
                     } => {
                         let (history_tx, history_rx) = mpsc::channel();
-
-                        storage_tx
-                            .send(StorageAction::DumpHistory { history_tx })
-                            .unwrap();
+                        let _ = storage_tx.send(StorageAction::DumpHistory { history_tx });
 
                         if let Ok(history) = history_rx.recv() {
                             if history.is_empty() {
@@ -65,9 +66,8 @@ impl ReplicationActor {
                                 }
                             }
 
-                            log_tx
-                                .send(log::info!("replicado historial de comandos en replica"))
-                                .unwrap();
+                            let _ =
+                                log_tx.send(log::info!("enviado historial de comandos a replica"));
                         }
 
                         replication_actor
@@ -81,9 +81,13 @@ impl ReplicationActor {
         actions_tx
     }
 
-    fn broadcast_command(&mut self, bytes: &[u8]) {
+    fn broadcast_command(&mut self, bytes: &[u8], log_tx: &Sender<Log>) {
         for stream in &mut self.replication_streams {
-            stream.write_all(bytes).unwrap();
+            if let Err(err) = stream.write_all(bytes) {
+                let _ = log_tx.send(log::warn!(
+                    "error escribiendo comando en replication stream: {err}"
+                ));
+            }
         }
     }
 }

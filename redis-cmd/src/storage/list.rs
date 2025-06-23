@@ -1,7 +1,8 @@
 use std::fmt;
 
-use crate::Error;
 use redis_resp::BulkString;
+
+use crate::Error;
 
 /// Insert all the specified values at the head of the list stored at key.
 ///

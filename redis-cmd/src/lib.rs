@@ -11,10 +11,9 @@ use cluster::*;
 use connection::*;
 pub use error::Error;
 use pub_sub::*;
+use redis_resp::{Array, RespDataType};
 use server::*;
 use storage::*;
-
-use redis_resp::{Array, RespDataType};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
@@ -93,6 +92,7 @@ impl TryFrom<Array> for Command {
                     "ADDSLOTSRANGE" => Self::Cluster(AddSlotsRange::from_args(args)?.into()),
                     "REPLICATE" => Self::Cluster(Replicate::from_args(args)?.into()),
                     "KEYSLOT" => Self::Cluster(KeySlot::from_args(args)?.into()),
+                    "MYID" => Self::Cluster(MyId::from_args(args)?.into()),
                     _ => return Err(Error::CommandNotSupported),
                 }
             }

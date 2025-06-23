@@ -7,6 +7,7 @@ use eframe::{
 
 use crate::{editor::Editor, menu::Menu};
 
+/// Información de acceso a la base de datos para los documentos.
 #[derive(Clone, Debug)]
 pub struct DbAccessInfo {
     pub saved_docs_ids_key: String,
@@ -14,12 +15,15 @@ pub struct DbAccessInfo {
     pub addr: SocketAddr,
 }
 
+/// Aplicación principal del editor de documentos.
 #[derive(Debug)]
 pub struct DocsEditorApp {
     db_addr: SocketAddr,
     screen: Screen,
 }
 
+#[allow(clippy::large_enum_variant)]
+/// Representa la pantalla actual: menú o editor.
 #[derive(Debug)]
 pub enum Screen {
     Menu(Menu),
@@ -27,13 +31,15 @@ pub enum Screen {
 }
 
 impl DocsEditorApp {
-    pub fn new(db_addr: SocketAddr, cc: &CreationContext<'_>) -> Self {
+    /// Crea una nueva instancia de la aplicación DocsEditorApp.
+    /// Inicializa el menú
+    pub fn new(db_addr: SocketAddr, cc: &CreationContext<'_>) -> Result<Self, crate::error::Error> {
         configure_text_styles(&cc.egui_ctx);
 
-        Self {
+        Ok(Self {
             db_addr,
-            screen: Screen::Menu(Menu::new(db_addr).unwrap()),
-        }
+            screen: Screen::Menu(Menu::new(db_addr)?),
+        })
     }
 }
 
@@ -41,15 +47,26 @@ impl eframe::App for DocsEditorApp {
     fn update(&mut self, ctx: &eframe::egui::Context, _: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             match &mut self.screen {
-                Screen::Menu(menu) => match menu.ui(ui) {
-                    Some(doc_metadata) => {
-                        self.screen = Screen::Editor(Editor::new(self.db_addr, doc_metadata))
+                Screen::Menu(menu) => {
+                    if let Some(doc_metadata) = menu.ui(ui) {
+                        match Editor::new(self.db_addr, doc_metadata) {
+                            Ok(editor) => self.screen = Screen::Editor(editor),
+                            Err(err) => {
+                                print!("{}", log::error!("{err}"));
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            }
+                        }
                     }
-                    None => (),
-                },
+                }
                 Screen::Editor(editor) => {
                     if !editor.ui(ui) {
-                        self.screen = Screen::Menu(Menu::new(self.db_addr).unwrap());
+                        match Menu::new(self.db_addr) {
+                            Ok(menu) => self.screen = Screen::Menu(menu),
+                            Err(err) => {
+                                print!("{}", log::error!("{err}"));
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            }
+                        };
                     }
                 }
             };

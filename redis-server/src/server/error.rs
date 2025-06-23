@@ -1,12 +1,13 @@
 use std::{fmt, io, sync::mpsc::SendError};
 
 use log::Log;
-
-use crate::thread_pool;
+use rustls::pki_types::pem;
 
 use super::node;
+use crate::thread_pool;
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum InternalError {
     AddrBind(io::Error),
     LogFileOpen(io::Error),
@@ -14,6 +15,8 @@ pub enum InternalError {
     LogSend(SendError<Log>),
     Node(node::InternalError),
     ThreadPool(thread_pool::Error),
+    PemFile(pem::Error),
+    Tls(rustls::Error),
 }
 
 impl std::error::Error for InternalError {}
@@ -33,6 +36,12 @@ impl fmt::Display for InternalError {
             }
             InternalError::Node(err) => write!(f, "{err}"),
             InternalError::ThreadPool(err) => write!(f, "{err}"),
+            InternalError::PemFile(err) => {
+                write!(f, "error procesando llaves de encriptación: {err}")
+            }
+            InternalError::Tls(err) => {
+                write!(f, "error de configuración TLS: {err}")
+            }
         }
     }
 }
@@ -52,5 +61,17 @@ impl From<node::InternalError> for InternalError {
 impl From<thread_pool::Error> for InternalError {
     fn from(err: thread_pool::Error) -> Self {
         Self::ThreadPool(err)
+    }
+}
+
+impl From<pem::Error> for InternalError {
+    fn from(err: pem::Error) -> Self {
+        Self::PemFile(err)
+    }
+}
+
+impl From<rustls::Error> for InternalError {
+    fn from(err: rustls::Error) -> Self {
+        Self::Tls(err)
     }
 }

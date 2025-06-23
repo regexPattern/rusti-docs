@@ -1,4 +1,5 @@
 mod command;
+mod error;
 mod fail;
 mod failover;
 mod flags;
@@ -18,20 +19,20 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+pub use error::InternalError;
+use fail::FailureReport;
+use flags::Flags;
 use log::Log;
+use message::{
+    Message, MessageHeader, MessagePayload,
+    payload::{GossipKind, GossipNode, GossipPayload, PublishPayload},
+};
 use rand::{
     Rng,
     seq::{IndexedRandom, IteratorRandom},
 };
 use redis_cmd::cluster::ClusterCommand;
 use redis_resp::BulkString;
-
-use fail::FailureReport;
-use flags::Flags;
-use message::{
-    Message, MessageHeader, MessagePayload,
-    payload::{GossipKind, GossipNode, GossipPayload, PublishPayload},
-};
 
 use crate::{config::ClusterConfig, server::node::storage::StorageAction};
 
@@ -49,7 +50,6 @@ pub struct ClusterActor {
     cluster_streams: HashMap<NodeId, TcpStream>,
     timeout_millis: u64,
     failure_reports: HashMap<NodeId, HashMap<NodeId, FailureReport>>,
-    replication_link: Option<TcpStream>,
     storage_tx: Sender<StorageAction>,
     pub_sub_tx: Sender<PublishPayload>,
     votes_received: u64,
@@ -82,12 +82,15 @@ pub enum ClusterAction {
 }
 
 impl ClusterActor {
+    /// Inicia el ciclo principal del actor de clúster y lanza los threads de gestión.
+    /// Configura el servidor, el loop de ping y el loop de chequeo de fallos.
+    /// Devuelve un canal para enviar acciones al actor.
     pub fn start(
         config: ClusterConfig,
         storage_tx: Sender<StorageAction>,
         pub_sub_tx: Sender<PublishPayload>,
         log_tx: Sender<Log>,
-    ) -> Sender<ClusterAction> {
+    ) -> Result<Sender<ClusterAction>, InternalError> {
         let mut id = [0_u8; 20];
         rand::rng().fill(&mut id);
 
@@ -110,7 +113,6 @@ impl ClusterActor {
             cluster_streams: HashMap::new(),
             timeout_millis: 10000,
             failure_reports: HashMap::new(),
-            replication_link: None,
             storage_tx,
             pub_sub_tx,
             votes_received: 0,
@@ -122,19 +124,17 @@ impl ClusterActor {
 
         let (actions_tx, actions_rx) = mpsc::channel();
 
-        log_tx
-            .send(log::info!(
-                "iniciando nodo {}",
-                hex::encode(cluster_actor.myself.id)
-            ))
-            .unwrap();
+        log_tx.send(log::info!(
+            "iniciando nodo {}",
+            hex::encode(cluster_actor.myself.id)
+        ))?;
 
         let addr = SocketAddr::new(
             cluster_actor.myself.ip.into(),
             cluster_actor.myself.cluster_port,
         );
 
-        Self::start_cluster_server(addr, actions_tx.clone(), &log_tx);
+        Self::start_cluster_server(addr, actions_tx.clone(), &log_tx)?;
         Self::start_ping_tick_loop(Duration::from_millis(1000), actions_tx.clone());
 
         Self::start_failure_check_loop(
@@ -144,27 +144,26 @@ impl ClusterActor {
 
         cluster_actor.start_handling_actions(actions_tx.clone(), actions_rx, log_tx);
 
-        actions_tx
+        Ok(actions_tx)
     }
 
     fn start_cluster_server(
         addr: SocketAddr,
         actions_tx: Sender<ClusterAction>,
         log_tx: &Sender<Log>,
-    ) {
-        let listener = TcpListener::bind(addr).unwrap();
-        thread::spawn(move || Self::listen_cluster(listener, actions_tx));
-
-        log_tx
-            .send(log::info!("servidor escuchando cluster en {addr:?}"))
-            .unwrap();
+    ) -> Result<(), InternalError> {
+        let cluster_listener = TcpListener::bind(addr).map_err(InternalError::ClusterPortBind)?;
+        let log_tx_clone = log_tx.clone();
+        thread::spawn(move || Self::listen_cluster(cluster_listener, actions_tx, &log_tx_clone));
+        log_tx.send(log::info!("servidor escuchando cluster en {addr:?}"))?;
+        Ok(())
     }
 
     fn start_ping_tick_loop(interval: Duration, actions_tx: Sender<ClusterAction>) {
         thread::spawn(move || {
             loop {
                 thread::sleep(interval);
-                actions_tx.send(ClusterAction::TickPing).unwrap();
+                let _ = actions_tx.send(ClusterAction::TickPing);
             }
         });
     }
@@ -173,7 +172,7 @@ impl ClusterActor {
         thread::spawn(move || {
             loop {
                 thread::sleep(interval);
-                actions_tx.send(ClusterAction::CheckFailures).unwrap();
+                let _ = actions_tx.send(ClusterAction::CheckFailures);
             }
         });
     }
@@ -187,9 +186,15 @@ impl ClusterActor {
         thread::spawn(move || self.handle_actions(actions_tx, actions_rx, log_tx));
     }
 
-    fn listen_cluster(listener: TcpListener, actions_tx: Sender<ClusterAction>) {
+    fn listen_cluster(
+        listener: TcpListener,
+        actions_tx: Sender<ClusterAction>,
+        log_tx: &Sender<Log>,
+    ) {
         for stream in listener.incoming() {
             let mut stream = stream.unwrap();
+
+            let log_tx = log_tx.clone();
             let actions_tx = actions_tx.clone();
 
             thread::spawn(move || {
@@ -207,15 +212,23 @@ impl ClusterActor {
                             {
                                 drop_stream = *kind == GossipKind::Meet;
                             }
-
-                            actions_tx.send(ClusterAction::ClusterMessage(msg)).unwrap();
-
+                            let _ = actions_tx.send(ClusterAction::ClusterMessage(msg));
                             if drop_stream {
                                 return;
                             }
                         }
-                        Ok(_) => return,
-                        Err(_) => todo!(),
+                        Ok(_) => {
+                            let _ = log_tx.send(log::warn!(
+                                "nodo conocido ha cerrado su canal de comunicación"
+                            ));
+                            return;
+                        }
+                        Err(err) => {
+                            let _ = log_tx.send(log::warn!(
+                                "error en canal de comunicación con cluster: {err}"
+                            ));
+                            return;
+                        }
                     }
                 }
             });
@@ -268,23 +281,37 @@ impl ClusterActor {
                             if SystemTime::now().duration_since(start).unwrap()
                                 > Duration::from_millis(self.failover_timeout_millis)
                             {
-                                if !self.myself.flags.contains(flags::FLAG_MASTER) {
-                                    //si aun no soy master...
-                                    log_tx
-                                        .send(log::info!(
-                                            "Reiniciando failover: current_epoch pasa de {} a {}",
-                                            self.current_epoch,
-                                            self.current_epoch + 1
-                                        ))
-                                        .unwrap();
-                                    self.current_epoch += 1;
-                                    self.votes_received = 0;
-                                    self.request_failover(&log_tx);
-                                } else {
-                                    //apago la eleccion
+                                let should_stop_failover =
+                                    if self.myself.flags.contains(flags::FLAG_MASTER) {
+                                        true
+                                    } else if let Some(master_id) = self.myself.master_id {
+                                        if let Some(master) = self.cluster_view.get(&master_id) {
+                                            !master.flags.contains(flags::FLAG_FAIL)
+                                        } else {
+                                            false
+                                        }
+                                    } else {
+                                        false
+                                    };
+
+                                if should_stop_failover {
+                                    let _ = log_tx.send(log::debug!(
+                                        "finalizando failover - situación resuelta"
+                                    ));
+
                                     self.failover_in_progress = false;
                                     self.failover_epoch = None;
                                     self.failover_start = None;
+                                } else {
+                                    let _ = log_tx.send(log::info!(
+                                        "reiniciando failover: current epoch pasa de {} a {}",
+                                        self.current_epoch,
+                                        self.current_epoch + 1
+                                    ));
+
+                                    self.current_epoch += 1;
+                                    self.votes_received = 0;
+                                    self.request_failover(&log_tx);
                                 }
                             }
                         }
@@ -295,37 +322,30 @@ impl ClusterActor {
                 }
                 ClusterAction::ConfirmFailure { id } => self.confirm_failure(id, &log_tx),
                 ClusterAction::RedirectToHoldingNode { key, redir_tx } => {
-                    self.redirect_to_holding_node((&key).into(), redir_tx)
+                    self.redirect_to_holding_node(&key, redir_tx, &log_tx)
                 }
             }
         }
     }
 
     fn handle_incoming_message(&mut self, msg: Message, log_tx: &Sender<Log>) {
-        log_tx
-            .send(log::gossip!(
-                "recibido {} de nodo {}",
-                msg.payload,
-                hex::encode(msg.header.id)
-            ))
-            .unwrap();
+        let _ = log_tx.send(log::gossip!(
+            "recibido {} de nodo {}",
+            msg.payload,
+            hex::encode(msg.header.id)
+        ));
 
         self.add_message_sender_to_cluster_view(&msg.header, log_tx);
 
         if msg.header.config_epoch > self.current_epoch {
-            log_tx
-                .send(log::info!(
-                    "actualizando current epoch de {} a {}",
-                    self.current_epoch,
-                    msg.header.config_epoch,
-                ))
-                .unwrap();
+            let _ = log_tx.send(log::info!(
+                "actualizando current epoch de {} a {}",
+                self.current_epoch,
+                msg.header.config_epoch,
+            ));
 
             self.current_epoch = msg.header.config_epoch;
         }
-
-        //si el header anuncia MISMOS SLOTS
-        //puedo preguntar por la conifg epoch pero sin peros
 
         match msg.payload {
             MessagePayload::Gossip(payload) => {
@@ -338,12 +358,10 @@ impl ClusterActor {
             MessagePayload::FailOver(payload) => {
                 self.handle_failover_message(payload, &msg.header, log_tx)
             }
-            MessagePayload::Update(_payload) => todo!(),
         }
     }
 
     fn handle_config_epoch_collision(&mut self, header: &MessageHeader, log_tx: &Sender<Log>) {
-        // Prerequisitos: ambos son master y tienen el mismo config_epoch
         if header.config_epoch != self.myself.config_epoch {
             return;
         }
@@ -352,61 +370,49 @@ impl ClusterActor {
         {
             return;
         }
-        // No actuar si el otro nodo tiene un NodeId menor o igual
-        if header.id <= self.myself.id {
-            log_tx
+        if header.id >= self.myself.id {
+            let _ = log_tx
                 .send(log::info!(
-                    "ignorado configEpoch collision con nodo {} xq mi id es {} y el del nodo que me hablo {}
-                    mi epoch queda en {}",
+                    "ignorado colision de config epoch con nodo {} porque mi id es {} y el del nodo que me hablo {}",
                     hex::encode(header.id),
                     hex::encode(self.myself.id),
                     hex::encode(header.id),
-                    self.myself.config_epoch,
-                ))
-                .unwrap();
+                ));
+
+            let _ = log_tx.send(log::info!(
+                "config epoch queda en {}",
+                self.myself.config_epoch
+            ));
+
             return;
         }
         self.current_epoch += 1;
         self.myself.config_epoch = self.current_epoch;
-        // self.save_config();
 
-        log_tx
-            .send(log::warn!(
-                "WARNING: configEpoch collision con nodo {}. configEpoch actualizado a {}
-                xq mi id es {} y el del nodo que me hablo {}",
-                hex::encode(header.id),
-                self.myself.config_epoch,
-                hex::encode(self.myself.id),
-                hex::encode(header.id)
-            ))
-            .unwrap();
+        let _ = log_tx.send(log::warn!(
+                "colision de config epoch con nodo {} -> config epoch actualizado a {} porque mi id es {} y el del nodo que me hablo {}",
+            hex::encode(header.id),
+            self.myself.config_epoch,
+            hex::encode(self.myself.id),
+            hex::encode(header.id)
+        ));
     }
 
     fn add_message_sender_to_cluster_view(&mut self, header: &MessageHeader, log_tx: &Sender<Log>) {
         self.handle_config_epoch_collision(header, log_tx);
 
-        // log_tx
-        //         .send(log::info!(
-        //             "mi config epoch es de: {}",
-        //             self.myself.config_epoch,
-        //         ))
-        //         .unwrap();
-
         match self.cluster_view.entry(header.id) {
             Entry::Occupied(mut entry) => {
-                // TODO realmente solo deberiamos hacer esto si el otro tiene mayor config epoch.
                 let known_node = entry.get_mut();
 
                 if known_node.flags.contains(flags::FLAG_PFAIL)
                     && !header.flags.contains(flags::FLAG_PFAIL)
                     && !header.flags.contains(flags::FLAG_FAIL)
                 {
-                    log_tx
-                        .send(log::info!(
-                            "removido PFAIL de nodo {}",
-                            hex::encode(known_node.id)
-                        ))
-                        .unwrap();
+                    let _ = log_tx.send(log::info!(
+                        "removido PFAIL de nodo {}",
+                        hex::encode(known_node.id)
+                    ));
                 }
 
                 known_node.flags = header.flags;
@@ -414,6 +420,25 @@ impl ClusterActor {
                 known_node.config_epoch = header.config_epoch;
                 known_node.slots = header.slots;
                 known_node.master_id = header.master_id;
+
+                // Si este nodo es replica y el mensaje viene de su master, actualizar mis slots
+                if let Some(my_master_id) = self.myself.master_id {
+                    if my_master_id == header.id && header.flags.contains(flags::FLAG_MASTER) {
+                        let old_slots = self.myself.slots;
+                        self.myself.slots = header.slots;
+
+                        if old_slots != header.slots {
+                            let _ = log_tx.send(log::info!(
+                                "actualizados mis slots de {}-{} a {}-{} recibidos del master {}",
+                                old_slots.0,
+                                old_slots.1,
+                                header.slots.0,
+                                header.slots.1,
+                                hex::encode(header.id)
+                            ));
+                        }
+                    }
+                }
             }
             Entry::Vacant(entry) => {
                 entry.insert(ClusterNode {
@@ -428,6 +453,25 @@ impl ClusterActor {
                     slots: header.slots,
                     master_id: header.master_id,
                 });
+
+                // Si este nodo es replica y el nuevo nodo es su master, actualizar mis slots
+                if let Some(my_master_id) = self.myself.master_id {
+                    if my_master_id == header.id && header.flags.contains(flags::FLAG_MASTER) {
+                        let old_slots = self.myself.slots;
+                        self.myself.slots = header.slots;
+
+                        if old_slots != header.slots {
+                            let _ = log_tx.send(log::info!(
+                                "actualizados mis slots de {}-{} a {}-{} al conocer a mi master {}",
+                                old_slots.0,
+                                old_slots.1,
+                                header.slots.0,
+                                header.slots.1,
+                                hex::encode(header.id)
+                            ));
+                        }
+                    }
+                }
             }
         };
 
@@ -435,43 +479,39 @@ impl ClusterActor {
     }
 
     fn check_for_same_slots(&mut self, header: &MessageHeader, log_tx: &Sender<Log>) {
-        // Solo si yo soy master y el otro nodo también es master
         if self.myself.flags.contains(flags::FLAG_MASTER)
             && header.flags.contains(flags::FLAG_MASTER)
+            && self.myself.slots == header.slots
+            && self.myself.slots != (0, 0)
         {
-            // Chequea si los slots coinciden y no son (0, 0)
-            if self.myself.slots == header.slots && self.myself.slots != (0, 0) {
-                if self.myself.config_epoch < header.config_epoch
-                    // Yo debo hacerme slave del otro si mi config epoch es menor (o mi id es lexicografica// menor)
-                    || (self.myself.config_epoch == header.config_epoch && self.myself.id < header.id)
-                //la verificion del id creo es inecesaria xq ya etsa hanlde_collision pero x las dudas
-                {
-                    // Yo debo hacerme slave del otro
-                    log_tx.send(log::warn!(
-                        "slots Conflict: me hago SLAVE de {} (config_epoch {}), xq mi config epoch es {}",
-                        hex::encode(header.id),
-                        header.config_epoch,
-                        self.myself.config_epoch
-                    )).unwrap();
+            if self.myself.config_epoch < header.config_epoch
+                || (self.myself.config_epoch == header.config_epoch && self.myself.id < header.id)
+            {
+                let _ = log_tx.send(log::warn!(
+                    "conflicto de slots -> me hago replica de nodo {} con config epoch {} porque mi config epoch es {}",
+                    hex::encode(header.id),
+                    header.config_epoch,
+                    self.myself.config_epoch
+                ));
 
-                    self.myself.flags.0 &= !flags::FLAG_MASTER;
-                    self.myself.flags.0 |= flags::FLAG_SLAVE;
-                    self.myself.master_id = Some(header.id);
+                let _ = log_tx.send(log::info!("¡Perdido elección!"));
 
-                    //apago la eleecion
-                    self.failover_in_progress = false;
-                    self.failover_epoch = None;
-                    self.failover_start = None;
-                } else {
-                    // El otro debería hacerse slave mío
-                    //mandar update??
-                    log_tx.send(log::warn!(
-                        "Slots conflict: nodo {} (config epoch: {}) debería hacerse SLAVE mío xq mi config_epoch es {}",
-                        hex::encode(header.id),
-                        header.config_epoch,
-                        self.myself.config_epoch,
-                    )).unwrap();
-                }
+                self.myself.flags.0 &= !flags::FLAG_MASTER;
+                self.myself.flags.0 |= flags::FLAG_SLAVE;
+                self.myself.master_id = Some(header.id);
+
+                self.failover_in_progress = false;
+                self.failover_epoch = None;
+                self.failover_start = None;
+            } else {
+                let _ = log_tx.send(log::warn!(
+                    "conflicto de slots -> nodo {} con config epoch {} debería hacerse slave mío porque mi config epoch es {}",
+                    hex::encode(header.id),
+                    header.config_epoch,
+                    self.myself.config_epoch,
+                ));
+
+                let _ = log_tx.send(log::info!("¡Ganado elección!"));
             }
         }
     }
@@ -537,10 +577,8 @@ impl fmt::Display for ClusterNode {
         } = self;
 
         let id = hex::encode(id);
-        let addr = format!("{}:{}@{}", ip.to_string(), port, cluster_port);
-        let master = master_id
-            .map(|id| hex::encode(id))
-            .unwrap_or("-".to_string());
+        let addr = format!("{}:{}@{}", ip, port, cluster_port);
+        let master = master_id.map(hex::encode).unwrap_or("-".to_string());
 
         let ping_sent = ping_sent.duration_since(UNIX_EPOCH).unwrap().as_millis();
 
@@ -550,9 +588,22 @@ impl fmt::Display for ClusterNode {
             .as_millis();
 
         let slots = if self.master_id.is_some() {
-            "".to_string()
+            if slots != &(0, 0) {
+                format!("\x1b[38;2;107;114;128m{}-{}\x1b[0m", slots.0, slots.1)
+            } else {
+                "".to_string()
+            }
+        } else if slots != &(0, 0) {
+            if flags.contains(flags::FLAG_FAIL) {
+                format!(
+                    "\x1b[38;2;107;114;128m\x1b[9m{}-{}\x1b[29m\x1b[0m",
+                    slots.0, slots.1
+                )
+            } else {
+                format!("\x1b[92m{}-{}\x1b[0m", slots.0, slots.1)
+            }
         } else {
-            format!("{}-{}", slots.0, slots.1)
+            "".to_string()
         };
 
         write!(
@@ -583,14 +634,12 @@ mod tests {
 
         ClusterActor {
             myself,
-            config_epoch: 0,
             current_epoch: 0,
             last_vote_epoch: 0,
             cluster_view: HashMap::new(),
             cluster_streams: HashMap::new(),
             timeout_millis: cluster_config.node_timeout as u64,
             failure_reports: HashMap::new(),
-            replication_link: None,
             storage_tx,
             pub_sub_tx,
             votes_received: 0,

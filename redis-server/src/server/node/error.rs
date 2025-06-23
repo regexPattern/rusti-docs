@@ -7,15 +7,19 @@ use super::{
     pub_sub::{self, PubSubEnvelope},
     storage::{self, StorageAction},
 };
+use crate::server::node::{cluster, replication::ReplicationAction};
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum InternalError {
     LogSend(SendError<Log>),
     ClusterActorSend(SendError<ClusterAction>),
     PubSubBroker(pub_sub::InternalError),
     PubSubBrokerSend(SendError<PubSubEnvelope>),
+    ReplicationActorSend(SendError<ReplicationAction>),
     StorageActor(storage::InternalError),
     StorageActorSend(SendError<StorageAction>),
+    ClusterActor(cluster::InternalError),
     StreamRead(io::Error),
     StreamWrite(io::Error),
 }
@@ -46,6 +50,11 @@ impl fmt::Display for InternalError {
             InternalError::StreamWrite(err) => {
                 write!(f, "error escribiendo al stream del cliente: {err}")
             }
+            InternalError::ReplicationActorSend(err) => write!(
+                f,
+                "error enviando action por el canal del replication actor: {err}"
+            ),
+            InternalError::ClusterActor(err) => write!(f, "{err}"),
         }
     }
 }
@@ -74,6 +83,12 @@ impl From<SendError<PubSubEnvelope>> for InternalError {
     }
 }
 
+impl From<SendError<ReplicationAction>> for InternalError {
+    fn from(err: SendError<ReplicationAction>) -> Self {
+        Self::ReplicationActorSend(err)
+    }
+}
+
 impl From<storage::InternalError> for InternalError {
     fn from(err: storage::InternalError) -> Self {
         Self::StorageActor(err)
@@ -83,5 +98,11 @@ impl From<storage::InternalError> for InternalError {
 impl From<SendError<StorageAction>> for InternalError {
     fn from(err: SendError<StorageAction>) -> Self {
         Self::StorageActorSend(err)
+    }
+}
+
+impl From<cluster::InternalError> for InternalError {
+    fn from(err: cluster::InternalError) -> Self {
+        Self::ClusterActor(err)
     }
 }

@@ -1,6 +1,5 @@
-use crate::{Error, RespDataType};
-
 use super::Array;
+use crate::{Error, RespDataType};
 
 pub const PREFIX: u8 = b'%';
 
@@ -67,9 +66,8 @@ impl Map {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::{BulkString, Integer, SimpleString};
-
     use super::*;
+    use crate::{BulkString, Integer, SimpleString};
 
     #[test]
     fn map_se_deserializa_correctamente() {

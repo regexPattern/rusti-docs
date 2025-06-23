@@ -1,4 +1,10 @@
-use std::{io::Write, net::TcpStream, sync::mpsc::Sender, thread::{self, JoinHandle}, time::Duration};
+use std::{
+    io::Write,
+    net::TcpStream,
+    sync::mpsc::Sender,
+    thread::{self, JoinHandle},
+    time::Duration,
+};
 
 use redis_cmd::{
     Command,
@@ -11,6 +17,8 @@ use crate::{DocsSyncer, DocsSyncerAction, error::Error};
 const CLIENTS_LIST_INTERVAL: Duration = Duration::from_millis(1000);
 
 impl DocsSyncer {
+    /// Inicia un thread que publica periódicamente la lista de clientes conectados.
+    /// Envía la acción PublishConnectedClients cada segundo.
     pub fn start_connected_clients_publisher(
         actions_tx: Sender<DocsSyncerAction>,
     ) -> JoinHandle<Result<(), Error>> {
@@ -22,6 +30,7 @@ impl DocsSyncer {
         })
     }
 
+    /// Registra un cliente como conectado a un documento y le envía el contenido inicial.
     pub fn connect_client(
         &mut self,
         client_id: String,
@@ -49,31 +58,30 @@ impl DocsSyncer {
         );
 
         let content = match doc_kind.as_str() {
-            "TEXT" => self.get_text_content(&doc_id),
-            "SPREADSHEET" => self.get_spreadsheet_content(&doc_id),
-            _ => todo!(),
+            "TEXT" => self.get_text_content(&doc_id)?,
+            "SPREADSHEET" => self.get_spreadsheet_content(&doc_id)?,
+            _ => unreachable!(),
         };
 
         let log_msg = log::debug!(
             "enviado al cliente {client_id} información de documento {doc_id} {doc_basename}"
         );
 
-        let mut stream = TcpStream::connect(self.db_addr).map_err(Error::ConnectionError)?;
+        let mut stream = TcpStream::connect(self.db_addr).map_err(Error::Connection)?;
 
         let cmd = Command::PubSub(PubSubCommand::Publish(Publish {
             channel: doc_id.into(),
             message: format!("FETCH_ACK@{client_id}@{doc_kind}@{content}").into(),
         }));
 
-        stream
-            .write_all(&Vec::from(cmd))
-            .map_err(Error::WriteError)?;
+        stream.write_all(&Vec::from(cmd)).map_err(Error::Write)?;
 
         print!("{log_msg}");
 
         Ok(())
     }
 
+    /// Elimina un cliente de la lista de conectados a un documento.
     pub fn disconnect_client(&mut self, client_id: String, doc_id: String) {
         if let Some(doc_clients) = self.connected_clients.get_mut(&doc_id) {
             doc_clients.remove(&client_id);
@@ -85,6 +93,7 @@ impl DocsSyncer {
         }
     }
 
+    /// Publica la lista de clientes conectados para cada documento.
     pub fn publish_connected_clients(&mut self) -> Result<(), Error> {
         for (doc_id, clients) in &self.connected_clients {
             if !clients.is_empty() {
@@ -97,12 +106,9 @@ impl DocsSyncer {
                     message: msg.into(),
                 }));
 
-                let mut stream =
-                    TcpStream::connect(self.db_addr).map_err(Error::ConnectionError)?;
+                let mut stream = TcpStream::connect(self.db_addr).map_err(Error::Connection)?;
 
-                stream
-                    .write_all(&Vec::from(cmd))
-                    .map_err(Error::WriteError)?;
+                stream.write_all(&Vec::from(cmd)).map_err(Error::Write)?;
             }
         }
 

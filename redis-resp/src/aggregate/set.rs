@@ -1,7 +1,5 @@
-use crate::RespDataType;
-use crate::error::Error;
-
 use super::Array;
+use crate::{RespDataType, error::Error};
 
 pub const PREFIX: u8 = b'~';
 
@@ -47,9 +45,8 @@ impl Set {
 mod tests {
     use std::collections::HashSet;
 
-    use crate::{Array, BulkString, Integer, RespDataType, SimpleString};
-
     use super::*;
+    use crate::{Array, BulkString, Integer, RespDataType, SimpleString};
 
     #[test]
     fn set_se_serializa_correctamente() {

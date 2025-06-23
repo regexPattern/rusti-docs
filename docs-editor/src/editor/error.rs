@@ -2,6 +2,7 @@ use std::{fmt, sync::mpsc::SendError};
 
 use crate::editor::EditorAction;
 
+//LeftEditor: salir del editor.
 #[derive(Debug)]
 pub enum Error {
     LeftEditor,

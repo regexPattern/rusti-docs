@@ -1,9 +1,12 @@
+/// Representa una operación de inserción o eliminación de líneas en un texto.
 #[derive(Clone, PartialEq, Debug)]
 pub enum TextPatch {
     Insert { index: usize, lines: Vec<String> },
     Delete { index: usize, count: usize },
 }
 
+/// Calcula los parches necesarios para transformar el texto old en new, línea por línea.
+/// Devuelve un vector de operaciones Insert y Delete.
 pub fn diff_lines(old: &str, new: &str) -> Vec<TextPatch> {
     let a: Vec<&str> = old.lines().collect();
     let b: Vec<&str> = new.lines().collect();
@@ -49,6 +52,8 @@ pub fn diff_lines(old: &str, new: &str) -> Vec<TextPatch> {
     ops
 }
 
+/// Aplica una lista de parches de texto sobre el string original y retorna el resultado.
+/// Inserta o elimina líneas según los parches dados.
 pub fn apply_text_patches(original: &str, patches: &[TextPatch]) -> String {
     let mut lines: Vec<String> = original.lines().map(String::from).collect();
 
@@ -89,6 +94,7 @@ pub fn apply_text_patches(original: &str, patches: &[TextPatch]) -> String {
     lines.join("\n")
 }
 
+/// Representa un cambio en una celda de una hoja de cálculo.
 #[derive(Clone, PartialEq, Debug)]
 pub struct CellPatch<'v> {
     pub row: usize,
@@ -96,6 +102,8 @@ pub struct CellPatch<'v> {
     pub value: &'v str,
 }
 
+/// Calcula los parches necesarios para transformar una matriz de celdas old en new.
+/// Devuelve un vector con los cambios detectados en cada celda.
 pub fn diff_cells<'v>(
     old: &'v [[String; 10]; 10],
     new: &'v [[String; 10]; 10],
@@ -117,6 +125,8 @@ pub fn diff_cells<'v>(
     patches
 }
 
+/// Aplica una lista de parches de celdas sobre la matriz original y retorna la nueva matriz.
+/// Modifica solo las celdas indicadas en los parches.
 pub fn apply_cell_patches<'v>(
     original: &[[String; 10]; 10],
     patches: &[CellPatch<'v>],

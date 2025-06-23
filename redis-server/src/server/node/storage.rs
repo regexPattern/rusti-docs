@@ -41,11 +41,14 @@ pub enum StorageAction {
 }
 
 impl StorageActor {
+    /// Inicia el actor de almacenamiento, recupera el estado desde disco y lanza los threads de
+    /// persistencia y replicación.
+    /// Procesa comandos de clientes y sincroniza el historial con réplicas.
     pub fn start(
         append_file_path: PathBuf,
         actions_rx: Receiver<StorageAction>,
         replication_tx: Sender<ReplicationAction>,
-        logger_tx: Sender<Log>,
+        log_tx: Sender<Log>,
     ) -> Result<(), InternalError> {
         let (commands_tx, commands_rx) = mpsc::channel();
 
@@ -56,7 +59,7 @@ impl StorageActor {
             .open(&append_file_path)
             .map_err(InternalError::PersistenceFileOpen)?;
 
-        logger_tx.send(log::info!(
+        log_tx.send(log::info!(
             "persistiendo base de datos al archivo {:?}",
             append_file_path
         ))?;
@@ -66,38 +69,71 @@ impl StorageActor {
             persistence_tx: commands_tx,
         };
 
-        let history = Self::load_history(&mut persistence_file);
+        let history = Self::load_history(&mut persistence_file)?;
 
         for cmd in &history {
             storage_actor.apply(cmd.clone());
         }
 
-        if history.len() > 0 {
-            logger_tx.send(log::info!(
+        if !history.is_empty() {
+            log_tx.send(log::info!(
                 "recuperados {} comandos del archivo de persistencia",
                 history.len()
             ))?;
 
-            logger_tx.send(log::info!("restablecido estado de la base de datos"))?;
+            log_tx.send(log::info!("restablecido estado de la base de datos"))?;
         }
 
         {
+            let log_tx = log_tx.clone();
             thread::spawn(move || {
                 for action in actions_rx {
                     match action {
                         StorageAction::ClientCommand { cmd, reply_tx } => {
-                            let reply = storage_actor.process_command(cmd).unwrap();
-                            let _ = reply_tx.send(reply);
+                            match storage_actor.process_command(cmd) {
+                                Ok(reply) => {
+                                    if reply_tx.send(reply).is_err() {
+                                        let _ = log_tx.send(log::error!(
+                                            "error enviando respuesta al cliente"
+                                        ));
+                                    }
+                                }
+                                Err(err) => {
+                                    let _ = log_tx.send(log::error!(
+                                        "error procesando comando de cliente: {err}"
+                                    ));
+                                    continue;
+                                }
+                            }
                         }
                         StorageAction::DumpHistory { history_tx } => {
-                            let mut file = OpenOptions::new()
-                                .read(true)
-                                .open(&append_file_path)
-                                .unwrap();
+                            let mut file =
+                                match OpenOptions::new().read(true).open(&append_file_path) {
+                                    Ok(file) => file,
+                                    Err(err) => {
+                                        let _ = log_tx.send(log::error!(
+                                        "error releyendo historial de comandos para replica: {err}"
+                                    ));
+                                        continue;
+                                    }
+                                };
 
-                            history_tx.send(Self::load_history(&mut file)).unwrap();
+                            match Self::load_history(&mut file) {
+                                Ok(history) => {
+                                    if history_tx.send(history).is_err() {
+                                        let _ = log_tx.send(log::error!(
+                                            "error enviando historial de comandos a replica"
+                                        ));
+                                    }
+                                }
+                                Err(err) => {
+                                    let _ = log_tx.send(log::error!(
+                                        "error releyendo historial de comandos para replica: {err}"
+                                    ));
+                                }
+                            }
                         }
-                    }
+                    };
                 }
             });
         }
@@ -105,13 +141,22 @@ impl StorageActor {
         {
             thread::spawn(move || {
                 for cmd in commands_rx {
+                    if !Self::is_write_command(&cmd) {
+                        continue;
+                    }
+
                     let bytes = Vec::from(Command::Storage(cmd));
                     if let Err(err) = Self::persist(&mut persistence_file, &bytes) {
-                        logger_tx.send(log::error!("{err}")).unwrap();
+                        let _ = log_tx.send(log::error!("error persistiendo comando: {err}"));
+                        return;
                     }
-                    replication_tx
+
+                    if replication_tx
                         .send(ReplicationAction::BroadcastCommand { bytes })
-                        .unwrap();
+                        .is_err()
+                    {
+                        let _ = log_tx.send(log::error!("error persistiendo comando a replicas"));
+                    }
                 }
             });
         }
@@ -119,26 +164,20 @@ impl StorageActor {
         Ok(())
     }
 
-    fn spawn_actor_thread() {}
-
-    fn load_history(file: &mut File) -> Vec<StorageCommand> {
+    fn load_history(file: &mut File) -> Result<Vec<StorageCommand>, InternalError> {
         let mut history = Vec::new();
         let mut bytes = Vec::new();
 
         file.read_to_end(&mut bytes)
-            .map_err(InternalError::PersistenceFileRead)
-            .unwrap();
+            .map_err(InternalError::PersistenceFileRead)?;
 
         let mut remaining_bytes = bytes.as_slice();
 
         while !remaining_bytes.is_empty() {
             let result = Array::parse_incremental(remaining_bytes)
-                .map_err(InternalError::PersistenceFileFormat)
-                .unwrap();
+                .map_err(InternalError::PersistenceFileFormat)?;
 
-            let cmd = Command::try_from(result.0)
-                .map_err(InternalError::PersistenceFileCommand)
-                .unwrap();
+            let cmd = Command::try_from(result.0).map_err(InternalError::PersistenceFileCommand)?;
 
             if let Command::Storage(cmd) = cmd {
                 history.push(cmd);
@@ -147,7 +186,7 @@ impl StorageActor {
             remaining_bytes = result.1;
         }
 
-        history
+        Ok(history)
     }
 
     fn persist(file: &mut File, bytes: &[u8]) -> Result<(), InternalError> {
@@ -156,12 +195,16 @@ impl StorageActor {
         file.sync_all().map_err(InternalError::PersistenceFileWrite)
     }
 
+    /// Procesa un comando de almacenamiento, lo aplica y lo persiste
+    /// Devuelve la respuesta serializada para el cliente.
     pub fn process_command(&mut self, cmd: StorageCommand) -> Result<Vec<u8>, InternalError> {
         let reply = self.apply(cmd.clone());
         self.persistence_tx.send(cmd).unwrap();
         Ok(reply)
     }
 
+    /// Aplica un comando de almacenamiento y retorna la respuesta serializada.
+    /// Modifica el estado interno según el comando recibido.
     pub fn apply(&mut self, cmd: StorageCommand) -> Vec<u8> {
         match cmd {
             StorageCommand::Del(Del { key, keys }) => self.del(key, keys),
@@ -202,5 +245,24 @@ impl StorageActor {
             StorageCommand::Decr(Decr { key }) => self.decr(key),
             StorageCommand::Incr(Incr { key }) => self.incr(key),
         }
+    }
+
+    fn is_write_command(cmd: &StorageCommand) -> bool {
+        matches!(
+            cmd,
+            StorageCommand::Del(_)
+                | StorageCommand::HSet(_)
+                | StorageCommand::HDel(_)
+                | StorageCommand::LPush(_)
+                | StorageCommand::LInsert(_)
+                | StorageCommand::LPop(_)
+                | StorageCommand::LIndex(_)
+                | StorageCommand::SAdd(_)
+                | StorageCommand::SRem(_)
+                | StorageCommand::Set(_)
+                | StorageCommand::Append(_)
+                | StorageCommand::Decr(_)
+                | StorageCommand::Incr(_)
+        )
     }
 }

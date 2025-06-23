@@ -12,33 +12,39 @@ use redis_resp::{BulkString, RespDataType};
 
 use crate::Error;
 
+/// Envía un comando Redis al servidor y maneja redirecciones MOVED.
+/// Devuelve la respuesta como RespDataType o un error.
 pub fn send_command(cmd: Command, db_addr: SocketAddr) -> Result<RespDataType, Error> {
     let mut slot_addr = db_addr;
     let cmd = Vec::from(cmd);
 
     loop {
-        let mut stream = TcpStream::connect(slot_addr).unwrap();
-        stream.write_all(&cmd).unwrap();
+        let mut stream = TcpStream::connect(slot_addr).map_err(Error::OpenConn)?;
+        stream.write_all(&cmd).map_err(Error::SendCommand)?;
 
-        stream.shutdown(Shutdown::Write).unwrap();
+        stream.shutdown(Shutdown::Write).map_err(Error::OpenConn)?;
 
         let mut buffer = Vec::new();
-        stream.read_to_end(&mut buffer).unwrap();
+        stream.read_to_end(&mut buffer).map_err(Error::ReadReply)?;
 
-        let reply = RespDataType::try_from(buffer.as_slice()).unwrap();
+        let reply = RespDataType::try_from(buffer.as_slice()).map_err(|_| Error::ReplyRespType)?;
 
         if let RespDataType::SimpleError(err) = reply {
-            let mut err = err.0.splitn(3, " ");
-            let redir_slot = err.nth(1).unwrap().parse().unwrap();
-            let redir_addr = err.next().unwrap().parse().unwrap();
-            slot_addr = SocketAddr::new(redir_slot, redir_addr);
-            continue;
+            if err.0.contains("MOVED") {
+                let mut err = err.0.splitn(3, " ");
+                slot_addr = err.nth(2).ok_or(Error::MissingData)?.parse().unwrap();
+                continue;
+            } else {
+                return Err(Error::RedisClient(err.0));
+            }
         } else {
             return Ok(reply);
         }
     }
 }
 
+/// Lee un resp map usando HGETALL y lo retorna como HashMap.
+/// Si la clave no existe, retorna un HashMap vacío.
 pub fn read_resp_map(
     addr: SocketAddr,
     key: &str,
@@ -53,7 +59,6 @@ pub fn read_resp_map(
             print!("{}", log::debug!("key '{key}' sin inicializar"));
             return Ok(HashMap::new());
         }
-        RespDataType::SimpleError(_err) => todo!(),
         _ => {
             return Err(Error::ReplyRespType);
         }

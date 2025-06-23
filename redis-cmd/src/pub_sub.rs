@@ -1,7 +1,8 @@
 use std::fmt;
 
-use crate::Error;
 use redis_resp::BulkString;
+
+use crate::Error;
 
 /// Comandos de Pub/Sub.
 #[derive(Clone, Debug, PartialEq)]

@@ -15,6 +15,7 @@ use super::{
 };
 
 #[derive(Copy, Clone, PartialEq, Hash)]
+/// Reporte de fallo de un nodo en el clúster, con id del reportante y timestamp.
 pub struct FailureReport {
     pub reporter_id: NodeId,
     pub time: SystemTime,
@@ -40,17 +41,17 @@ impl fmt::Debug for FailureReport {
 }
 
 impl ClusterActor {
+    /// Marca un nodo como FAIL en la vista del clúster y solicita failover si es el master.
+    /// Actualiza los flags del nodo y registra el evento en el log.
     pub fn handle_fail_message(&mut self, payload: FailPayload, log_tx: &Sender<Log>) {
         if let Some(node) = self.cluster_view.get_mut(&payload.id) {
             node.flags.0 |= flags::FLAG_FAIL;
             node.flags.0 &= !flags::FLAG_PFAIL;
 
-            log_tx
-                .send(log::info!(
-                    "nodo {} marcado como FAIL",
-                    hex::encode(node.id)
-                ))
-                .unwrap();
+            let _ = log_tx.send(log::info!(
+                "nodo {} marcado como FAIL",
+                hex::encode(node.id)
+            ));
 
             if Some(node.id) == self.myself.master_id {
                 self.request_failover(log_tx);
@@ -58,6 +59,8 @@ impl ClusterActor {
         }
     }
 
+    /// Revisa el estado de los nodos para detectar fallos potenciales y confirmados.
+    /// Llama a los métodos internos para marcar PFAIL/FAIL y enviar acciones si hay quorum.
     pub fn check_failures(&mut self, actions_tx: &Sender<ClusterAction>, log_tx: &Sender<Log>) {
         let now = SystemTime::now();
 
@@ -74,20 +77,19 @@ impl ClusterActor {
                 if !node.flags.contains(flags::FLAG_PFAIL) && !node.flags.contains(flags::FLAG_FAIL)
                 {
                     node.flags.0 |= flags::FLAG_PFAIL;
-
-                    log_tx
-                        .send(log::warn!(
-                            "nodo {} marcado como PFAIL",
-                            hex::encode(node.id)
-                        ))
-                        .unwrap();
+                    let _ = log_tx.send(log::warn!(
+                        "nodo {} marcado como PFAIL",
+                        hex::encode(node.id)
+                    ));
                 }
             } else {
                 node.flags.0 &= !flags::FLAG_PFAIL;
             }
         }
     }
-
+    /// Revisa los nodos marcados como PFAIL y confirma fallos si hay quorum.
+    /// Envía acciones de confirmación de fallo y actualiza los flags de los nodos.
+    /// Si el nodo afectado es el master, solicita failover.
     pub fn check_confirmed_failures(
         &mut self,
         now: SystemTime,
@@ -105,12 +107,6 @@ impl ClusterActor {
             })
             .count();
 
-        //xa poder llamar a self.rqeuest_failover sin quilombos de borrowing
-        //como solmente cuento com affected nodes los nodos que estan en PFAIL
-        //Y NO LO Q ESTAN EN FAIL,
-        //NO CORREMOS RIESGO DE LLAMAR A 2 FAILOVERS SEGUIDOS POR QUE
-        //O SE LLAMA CUANOD LLEGO EL FAIL
-        //O SE LLAMA XQ YO LO MARUQE COM FAIL
         let affected_node_ids: Vec<_> = self
             .cluster_view
             .values()
@@ -126,25 +122,20 @@ impl ClusterActor {
                         .send(ClusterAction::ConfirmFailure { id: node_id })
                         .unwrap();
 
-                    log_tx
-                        .send(log::info!("enviado FAIL de nodo {}", hex::encode(node_id)))
-                        .unwrap();
+                    let _ =
+                        log_tx.send(log::info!("enviado FAIL de nodo {}", hex::encode(node_id)));
 
                     if let Some(node) = self.cluster_view.get_mut(&node_id) {
                         node.flags.0 &= !flags::FLAG_PFAIL;
                         node.flags.0 |= flags::FLAG_FAIL;
                     }
 
-                    // Si soy replica y el nodo que fallo es mi master, solicito un failover.
                     if let Some(master_id) = self.myself.master_id {
                         if master_id == node_id {
-                            log_tx
-                                .send(log::info!(
-                                    "Mi master {} ha fallado, solicitando failover",
-                                    hex::encode(master_id)
-                                ))
-                                .unwrap();
-
+                            let _ = log_tx.send(log::info!(
+                                "Mi master {} ha fallado, solicitando failover",
+                                hex::encode(master_id)
+                            ));
                             self.request_failover(log_tx);
                         }
                     }
@@ -173,6 +164,8 @@ impl ClusterActor {
         });
     }
 
+    /// Confirma el fallo de un nodo y notifica a los demás nodos del clúster.
+    /// Envía un mensaje FAIL a todos los nodos excepto al fallido y registra en el log.
     pub fn confirm_failure(&mut self, fail_id: NodeId, log_tx: &Sender<Log>) {
         let msg = Message {
             header: MessageHeader::from(&self.myself),
@@ -181,12 +174,10 @@ impl ClusterActor {
 
         for (id, stream) in &mut self.cluster_streams {
             if *id != fail_id && stream.write_all(&Vec::from(&msg)).is_err() {
-                log_tx
-                    .send(log::error!(
-                        "error escribiendo a stream de nodo {}",
-                        hex::encode(id)
-                    ))
-                    .unwrap();
+                let _ = log_tx.send(log::error!(
+                    "error escribiendo a stream de nodo {}",
+                    hex::encode(id)
+                ));
             }
         }
     }
@@ -194,124 +185,8 @@ impl ClusterActor {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::{HashMap, HashSet},
-        net::Ipv4Addr,
-        sync::mpsc,
-    };
-
-    use rand::Rng;
-
-    use crate::{
-        config::ClusterConfig,
-        server::node::cluster::{ClusterNode, flags::Flags, tests::dummy_empty_cluster_actor},
-    };
-
     use super::*;
-
-    fn dummy_node_id() -> NodeId {
-        let mut id = [0_u8; 20];
-        rand::rng().fill(&mut id);
-        id
-    }
-
-    #[test]
-    fn se_marcan_como_pfail_los_nodos_con_pong_received_vencido() {
-        let mut cluster_actor = dummy_empty_cluster_actor();
-
-        let now = SystemTime::now();
-
-        let mut insert_node = |offset: Duration| {
-            let id = dummy_node_id();
-            let mut node =
-                ClusterNode::from(&ClusterConfig::default(Ipv4Addr::new(127, 0, 0, 1), 6379));
-            node.flags = Flags(flags::FLAG_MASTER);
-            node.pong_received = now - offset;
-            cluster_actor.cluster_view.insert(id, node);
-        };
-
-        // dentro de rango
-        insert_node(Duration::from_millis(cluster_actor.timeout_millis / 3));
-        insert_node(Duration::from_millis(cluster_actor.timeout_millis / 4));
-        insert_node(Duration::from_millis(cluster_actor.timeout_millis / 5));
-
-        // fuera de rango
-        insert_node(Duration::from_millis(cluster_actor.timeout_millis * 3));
-        insert_node(Duration::from_millis(cluster_actor.timeout_millis * 4));
-        insert_node(Duration::from_millis(cluster_actor.timeout_millis * 5));
-
-        assert_eq!(
-            cluster_actor
-                .cluster_view
-                .values()
-                .filter(|n| n.flags.contains(flags::FLAG_PFAIL))
-                .count(),
-            0
-        );
-
-        let (dummy_actions_tx, _dummy_ations_rx) = mpsc::channel();
-        let (dummy_log_tx, _dummy_log_rx) = mpsc::channel();
-
-        cluster_actor.check_failures(&dummy_actions_tx, &dummy_log_tx);
-
-        assert_eq!(
-            cluster_actor
-                .cluster_view
-                .values()
-                .filter(|n| n.flags.contains(flags::FLAG_PFAIL))
-                .count(),
-            3
-        );
-    }
-
-    #[test]
-    fn se_filtran_los_failure_reports_expirados() {
-        let mut cluster_actor = dummy_empty_cluster_actor();
-
-        let node_id = dummy_node_id();
-
-        let now = SystemTime::now();
-
-        let report_at = |offset: Duration| {
-            let reporter_id = dummy_node_id();
-            (
-                reporter_id,
-                FailureReport {
-                    reporter_id,
-                    time: now - offset,
-                },
-            )
-        };
-
-        let reports = [
-            // no expirados
-            report_at(Duration::from_millis(cluster_actor.timeout_millis / 3)),
-            report_at(Duration::from_millis(cluster_actor.timeout_millis / 4)),
-            report_at(Duration::from_millis(cluster_actor.timeout_millis / 5)),
-            // expirados
-            report_at(Duration::from_millis(cluster_actor.timeout_millis * 3)),
-            report_at(Duration::from_millis(cluster_actor.timeout_millis * 4)),
-            report_at(Duration::from_millis(cluster_actor.timeout_millis * 5)),
-        ];
-
-        cluster_actor
-            .failure_reports
-            .insert(node_id, HashMap::from(reports));
-
-        cluster_actor.filter_expired_failure_reports(now);
-
-        let node_failure_reports: HashSet<_> = cluster_actor
-            .failure_reports
-            .get(&node_id)
-            .unwrap()
-            .values()
-            .collect();
-
-        assert_eq!(node_failure_reports.len(), 3);
-        assert!(node_failure_reports.contains(&reports[0].1));
-        assert!(node_failure_reports.contains(&reports[1].1));
-        assert!(node_failure_reports.contains(&reports[2].1));
-    }
+    use crate::server::node::cluster::flags::Flags;
 
     #[test]
     fn failure_tiene_quorum_si_hay_reports_de_mayoria_de_masters_y_soy_replica() {

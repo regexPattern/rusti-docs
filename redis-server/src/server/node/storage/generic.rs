@@ -1,5 +1,6 @@
-use super::StorageActor;
 use redis_resp::{BulkString, Integer};
+
+use super::StorageActor;
 
 impl StorageActor {
     // https://redis.io/docs/latest/commands/del

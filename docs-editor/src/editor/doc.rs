@@ -2,6 +2,7 @@ use core::fmt;
 
 use chrono::{DateTime, FixedOffset};
 
+/// Metadatos de un documento, incluyendo id, nombre base, tipo y última edición.
 #[derive(Clone, Debug)]
 pub struct DocMetadata {
     pub id: String,
@@ -10,6 +11,7 @@ pub struct DocMetadata {
     pub last_edited: DateTime<FixedOffset>,
 }
 
+/// Enumera los tipos de documento soportados: texto y hoja de cálculo.
 #[derive(Clone, PartialEq, Debug)]
 pub enum DocKind {
     Text,
@@ -25,13 +27,17 @@ impl fmt::Display for DocKind {
     }
 }
 
+/// Contenido de un documento: texto plano o matriz de hoja de cálculo.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum DocContent {
     Text(String),
     SpreadSheet([[String; 10]; 10]),
 }
 
 impl DocKind {
+    /// Detecta el tipo de documento a partir del baseName.
+    /// Retorna Some(DocKind) si la extensión es reconocida, None si no.
     pub fn from_basename(basename: &str) -> Option<Self> {
         let basename = basename.trim_end();
         if basename.ends_with(".txt") {

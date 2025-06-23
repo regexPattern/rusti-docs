@@ -18,6 +18,7 @@ use crate::{
     error::Error,
 };
 
+/// Menú principal para gestionar y crear documentos.
 #[derive(Debug)]
 pub struct Menu {
     db_addr: SocketAddr,
@@ -26,6 +27,7 @@ pub struct Menu {
 }
 
 impl Menu {
+    /// Crea una nueva instancia del menú y carga la lista de documentos guardados.
     pub fn new(db_addr: SocketAddr) -> Result<Self, Error> {
         let mut menu = Self {
             db_addr,
@@ -90,9 +92,11 @@ impl Menu {
             message: doc_metadata.into(),
         }));
 
-        let mut stream = TcpStream::connect(self.db_addr).unwrap();
+        let mut stream = TcpStream::connect(self.db_addr).map_err(Error::OpenConn)?;
 
-        stream.write_all(&Vec::from(cmd)).unwrap();
+        stream
+            .write_all(&Vec::from(cmd))
+            .map_err(Error::SendCommand)?;
 
         print!(
             "{}",
@@ -109,6 +113,8 @@ impl Menu {
         })
     }
 
+    /// Renderiza la interfaz de usuario del menú y permite seleccionar o crear documentos.
+    /// Devuelve el metadato del documento seleccionado, si hay alguno.
     pub fn ui(&mut self, ui: &mut egui::Ui) -> Option<DocMetadata> {
         let mut selected_doc = None;
 
@@ -137,7 +143,7 @@ impl Menu {
                                     ui.add_space(8.0);
 
                                     let time_since_last_edit =
-                                        now.signed_duration_since(&doc.last_edited).num_minutes();
+                                        now.signed_duration_since(doc.last_edited).num_minutes();
 
                                     ui.small(format!(
                                         "(editado hace {} minutos)",

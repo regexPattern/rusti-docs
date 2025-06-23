@@ -1,24 +1,15 @@
 use std::{
-    io::{BufRead, BufReader, Write},
-    net::{Ipv4Addr, Shutdown, SocketAddr, TcpStream},
-    sync::mpsc::{self, Sender},
-    thread,
+    io::Write,
+    net::{Ipv4Addr, SocketAddr, TcpStream},
+    sync::mpsc::Sender,
 };
 
 use log::Log;
-use redis_cmd::{
-    Command,
-    cluster::{AddSlots, ClusterCommand, Meet, Replicate},
-    server::{ServerCommand, Sync},
-};
+use redis_cmd::cluster::{AddSlots, ClusterCommand, Meet};
 use redis_resp::{BulkString, Integer, SimpleError, SimpleString};
 
-use crate::server::node::storage::StorageAction;
-
-use super::ClusterNode;
-
 use super::{
-    ClusterActor, flags,
+    ClusterActor,
     message::{
         Message, MessageHeader, MessagePayload,
         payload::{GossipKind, GossipPayload},
@@ -26,6 +17,9 @@ use super::{
 };
 
 impl ClusterActor {
+    /// Maneja un comando de clúster recibido y envía la respuesta al cliente.
+    /// Hace el Dispatch según el tipo de comando: nodos, slots, replicación, etc.
+    /// Si ocurre un error al responder, lo registra en el log.
     pub fn handle_cmd(
         &mut self,
         cmd: ClusterCommand,
@@ -41,9 +35,12 @@ impl ClusterActor {
             }
             ClusterCommand::Replicate(replicate) => self.replicate(replicate, log_tx),
             ClusterCommand::KeySlot(key_slot) => Self::key_slot(&key_slot.key),
+            ClusterCommand::MyId(_) => self.my_id(),
         };
 
-        client_tx.send(reply).unwrap();
+        if client_tx.send(reply).is_err() {
+            let _ = log_tx.send(log::error!("no se pudo responder al cliente"));
+        }
     }
 
     fn meet(&mut self, cmd: Meet, log_tx: &Sender<Log>) -> Vec<u8> {
@@ -94,15 +91,18 @@ impl ClusterActor {
     }
 
     fn nodes(&self) -> Vec<u8> {
-        let mut nodes = Vec::with_capacity(self.cluster_view.len());
+        let mut nodes: Vec<_> = self.cluster_view.values().collect();
+        let mut output = Vec::with_capacity(nodes.len() + 1);
 
-        nodes.push(format!("{}", self.myself));
+        nodes.push(&self.myself);
 
-        for node in self.cluster_view.values() {
-            nodes.push(format!("{node}"));
+        nodes.sort_by_key(|n| n.port);
+
+        for node in nodes {
+            output.push(format!("{node}"));
         }
 
-        BulkString::from(nodes.join("\n")).into()
+        BulkString::from(output.join("\n")).into()
     }
 
     fn add_slots(&mut self, cmd: AddSlots, log_tx: &Sender<Log>) -> Vec<u8> {
@@ -143,97 +143,8 @@ impl ClusterActor {
         SimpleString::from("OK").into()
     }
 
-    // fn replicate(&mut self, cmd: Replicate, log_tx: &Sender<Log>) -> Vec<u8> {
-    //     if let Some(stream) = self.replication_link.take() {
-    //         log_tx
-    //             .send(log::info!("cerrado replication stream con master anterior"))
-    //             .unwrap();
-    //         stream.shutdown(Shutdown::Both).unwrap();
-    //     }
-    //
-    //     let mut master_id = [0u8; 20];
-    //     hex::decode_to_slice(&cmd.node_id.to_string(), &mut master_id).unwrap();
-    //
-    //     let master = match self.cluster_view.get(&master_id) {
-    //         Some(master) => master,
-    //         None => {
-    //             return SimpleError::from(format!("nodo {} no conocido", hex::encode(master_id)))
-    //                 .into();
-    //         }
-    //     };
-    //
-    //     // TODO hacer que esto retorne un error si ya conozco al nodo pero no puedo contactarme con
-    //     // el.
-    //     self.connect_replication_stream(master, self.storage_tx.clone(), log_tx.clone());
-    //
-    //     self.myself.master_id = Some(master_id);
-    //     self.myself.flags.0 &= !flags::FLAG_MASTER;
-    //     self.myself.flags.0 |= flags::FLAG_SLAVE;
-    //     self.myself.slots = master.slots;
-    //
-    //     log_tx
-    //         .send(log::info!(
-    //             "configurado nodo como replica de {}",
-    //             hex::encode(master_id)
-    //         ))
-    //         .unwrap();
-    //
-    //     SimpleString::from("OK").into()
-    // }
-
-    fn connect_replication_stream(
-        &self,
-        master: &ClusterNode,
-        storage_tx: Sender<StorageAction>,
-        log_tx: Sender<Log>,
-    ) {
-        let master_id = hex::encode(master.id);
-
-        let mut stream =
-            TcpStream::connect(SocketAddr::new(master.ip.into(), master.port)).unwrap();
-
-        thread::spawn(move || {
-            let bytes = Vec::from(Command::Server(ServerCommand::Sync(Sync)));
-            stream.write_all(&bytes).unwrap();
-
-            let mut is_first_sync = false;
-
-            loop {
-                let mut reader = BufReader::new(&mut stream);
-                match reader.fill_buf() {
-                    Ok(bytes) if !bytes.is_empty() => {
-                        let cmd = Command::try_from(bytes).unwrap();
-
-                        if let Command::Storage(cmd) = cmd {
-                            let (reply_tx, reply_rx) = mpsc::channel();
-
-                            storage_tx
-                                .send(StorageAction::ClientCommand { cmd, reply_tx })
-                                .unwrap();
-
-                            let _ = reply_rx.recv();
-                        }
-
-                        if !is_first_sync {
-                            log_tx
-                                .send(log::info!("replicado historial de comandos de master"))
-                                .unwrap();
-
-                            is_first_sync = true;
-                        }
-                    }
-                    Ok(_) => {
-                        log_tx
-                            .send(log::warn!(
-                                "replication stream con nodo {master_id} cerrado"
-                            ))
-                            .unwrap();
-                        return;
-                    }
-                    Err(_) => todo!(),
-                }
-            }
-        });
+    fn my_id(&self) -> Vec<u8> {
+        BulkString::from(hex::encode(self.myself.id)).into()
     }
 
     fn key_slot(key: &BulkString) -> Vec<u8> {

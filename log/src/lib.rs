@@ -1,6 +1,7 @@
-use std::fmt;
-use std::sync::OnceLock;
-use std::sync::mpsc::SendError;
+use std::{
+    fmt,
+    sync::{OnceLock, mpsc::SendError},
+};
 
 use chrono::Local;
 

@@ -1,7 +1,5 @@
-use crate::RespDataType;
-use crate::error::Error;
-
 use super::{BulkString, ContentLength, Map, Set, bulk_string, map, set};
+use crate::{RespDataType, error::Error};
 
 pub const PREFIX: u8 = b'*';
 
@@ -9,6 +7,11 @@ pub const PREFIX: u8 = b'*';
 pub struct Array(Vec<RespDataType>);
 
 impl Array {
+    /// Parsea recursivamente los elementos de un array RESP, incluyendo arrays, mapas y sets anidados.
+    ///
+    /// Devuelve un vector con los elementos parseados y la cantidad de bytes consumidos.
+    /// Si el prefijo es de mapa, duplica la longitud esperada (clave-valor).
+    /// Retorna un error si la longitud es inválida o si faltan bytes para completar el array.
     pub fn parse_elements_recursive(
         bytes: &[u8],
         prefix: u8,
@@ -39,6 +42,10 @@ impl Array {
         Ok((elements, bytes_idx))
     }
 
+    /// Parsea un elemento RESP simple (como SimpleString, Integer, etc) hasta el primer terminador CRLF.
+    ///
+    /// Devuelve el elemento parseado y la cantidad de bytes consumidos.
+    /// Retorna un error si no encuentra el terminador esperado o si el tipo no es válido.
     pub fn parse_simple_element(bytes: &[u8]) -> Result<(RespDataType, usize), Error> {
         let offset = bytes
             .windows(2)
@@ -147,9 +154,8 @@ impl IntoIterator for Array {
 
 #[cfg(test)]
 mod tests {
-    use crate::{BulkString, Integer, SimpleError, SimpleString};
-
     use super::*;
+    use crate::{BulkString, Integer, SimpleError, SimpleString};
 
     #[test]
     fn array_de_un_solo_tipo_se_serializa_correctamente() {

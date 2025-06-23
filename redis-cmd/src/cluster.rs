@@ -1,7 +1,8 @@
 use std::fmt;
 
-use crate::Error;
 use redis_resp::BulkString;
+
+use crate::Error;
 
 /// Comandos de cluster.
 #[derive(Clone, Debug, PartialEq)]
@@ -12,6 +13,7 @@ pub enum ClusterCommand {
     AddSlotsRange(AddSlotsRange),
     Replicate(Replicate),
     KeySlot(KeySlot),
+    MyId(MyId),
 }
 
 impl From<ClusterCommand> for Vec<BulkString> {
@@ -23,6 +25,7 @@ impl From<ClusterCommand> for Vec<BulkString> {
             ClusterCommand::AddSlotsRange(cmd) => cmd.into(),
             ClusterCommand::Replicate(cmd) => cmd.into(),
             ClusterCommand::KeySlot(cmd) => cmd.into(),
+            ClusterCommand::MyId(cmd) => cmd.into(),
         }
     }
 }
@@ -36,6 +39,7 @@ impl fmt::Display for ClusterCommand {
             ClusterCommand::AddSlotsRange(cmd) => write!(f, "{cmd}"),
             ClusterCommand::Replicate(cmd) => write!(f, "{cmd}"),
             ClusterCommand::KeySlot(cmd) => write!(f, "{cmd}"),
+            ClusterCommand::MyId(cmd) => write!(f, "{cmd}"),
         }
     }
 }
@@ -236,7 +240,7 @@ impl KeySlot {
 
 impl From<KeySlot> for Vec<BulkString> {
     fn from(cmd: KeySlot) -> Self {
-        vec!["KEYSLOT".into(), cmd.key.into()]
+        vec!["KEYSLOT".into(), cmd.key]
     }
 }
 
@@ -249,5 +253,32 @@ impl From<KeySlot> for ClusterCommand {
 impl fmt::Display for KeySlot {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "CLUSTER KEYSLOT")
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MyId;
+
+impl MyId {
+    pub fn from_args(_args: impl Iterator<Item = BulkString>) -> Result<Self, Error> {
+        Ok(MyId)
+    }
+}
+
+impl From<MyId> for Vec<BulkString> {
+    fn from(_: MyId) -> Self {
+        vec!["MYID".into()]
+    }
+}
+
+impl From<MyId> for ClusterCommand {
+    fn from(cmd: MyId) -> Self {
+        ClusterCommand::MyId(cmd)
+    }
+}
+
+impl fmt::Display for MyId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CLUSTER MYID")
     }
 }

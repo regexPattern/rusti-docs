@@ -1,8 +1,7 @@
 use std::fmt;
 
-use crate::server::node::cluster::NodeId;
-
 use super::MessagePayload;
+use crate::server::node::cluster::NodeId;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct FailPayload {

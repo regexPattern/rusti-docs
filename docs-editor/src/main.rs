@@ -7,8 +7,17 @@ use docs_editor::DocsEditorApp;
 use eframe::{NativeOptions, egui::ViewportBuilder};
 
 fn main() {
-    let icon =
-        eframe::icon_data::from_png_bytes(include_bytes!("../assets/docs-editor.png")).unwrap();
+    let icon = match eframe::icon_data::from_png_bytes(include_bytes!("../assets/docs-editor.png"))
+    {
+        Ok(icon) => icon,
+        Err(_) => {
+            print!(
+                "{}",
+                log::error!("no se pudo procesar icono de la aplicación")
+            );
+            return;
+        }
+    };
 
     let opts = NativeOptions {
         viewport: ViewportBuilder {
@@ -20,12 +29,24 @@ fn main() {
         ..Default::default()
     };
 
-    let db_addr = SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), 7000);
+    let port: u16 = match std::env::var("REDIS_PORT") {
+        Ok(port) => match port.parse() {
+            Ok(port) => port,
+            Err(err) => {
+                print!("{}", log::error!("puerto inválido: {err}"));
+                return;
+            }
+        },
+        Err(_) => 6379,
+    };
 
-    eframe::run_native(
+    let db_addr = SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), port);
+
+    if let Err(err) = eframe::run_native(
         "docs-editor",
         opts,
-        Box::new(|cc| Ok(Box::new(DocsEditorApp::new(db_addr, cc)))),
-    )
-    .unwrap();
+        Box::new(|cc| Ok(Box::new(DocsEditorApp::new(db_addr, cc)?))),
+    ) {
+        print!("{}", log::error!("error inicializando app: {err}"));
+    }
 }

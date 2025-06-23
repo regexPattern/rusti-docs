@@ -11,6 +11,8 @@ use log::Log;
 use super::{ClusterActor, ClusterNode, fail::FailureReport, flags, message::*};
 
 impl ClusterActor {
+    /// Envía un mensaje PING a un nodo del clúster para comprobar su estado.
+    /// Actualiza el timestamp de ping enviado
     pub fn ping(&mut self, node: &GossipNode) {
         let msg = Message {
             header: MessageHeader::from(&self.myself),
@@ -30,6 +32,7 @@ impl ClusterActor {
         let _ = stream.write_all(&Vec::from(&msg));
     }
 
+    /// Envía un mensaje PONG como respuesta a un PING recibido de otro nodo.
     pub fn pong(&mut self, header: &MessageHeader) {
         let msg = Message {
             header: MessageHeader::from(&self.myself),
@@ -46,6 +49,8 @@ impl ClusterActor {
         let _ = stream.write_all(&Vec::from(&msg));
     }
 
+    /// Procesa un mensaje de gossip recibido, actualiza la vista del clúster y reportes de fallo.
+    /// Si recibe un PING, responde con PONG; si recibe un PONG, actualiza el timestamp de pong.
     pub fn handle_gossip_message(
         &mut self,
         header: &MessageHeader,
@@ -58,12 +63,10 @@ impl ClusterActor {
             }
 
             if let Entry::Vacant(entry) = self.cluster_view.entry(gossip_node.id) {
-                log_tx
-                    .send(log::info!(
-                        "conocido al nodo {} mediante gossip",
-                        hex::encode(gossip_node.id),
-                    ))
-                    .unwrap();
+                let _ = log_tx.send(log::info!(
+                    "conocido al nodo {} mediante gossip",
+                    hex::encode(gossip_node.id),
+                ));
 
                 entry.insert(ClusterNode::from(&gossip_node));
             }
@@ -71,7 +74,7 @@ impl ClusterActor {
             let sender_is_master = self
                 .cluster_view
                 .get(&header.id)
-                .and_then(|n| Some(n.flags.contains(flags::FLAG_MASTER)))
+                .map(|n| n.flags.contains(flags::FLAG_MASTER))
                 .is_some();
 
             if gossip_node.flags.contains(flags::FLAG_PFAIL) && sender_is_master {

@@ -1,5 +1,6 @@
 use eframe::egui::{self, TextEdit, Widget};
 
+/// Editor de texto que permite editar el contenido de un String mutable.
 #[derive(Debug)]
 pub struct TextEditor<'c> {
     pub content: &'c mut String,

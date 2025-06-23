@@ -1,8 +1,8 @@
-use super::MessagePayload;
+use std::{convert::TryFrom, fmt};
 
 use redis_resp::{BulkString, Error};
-use std::convert::TryFrom;
-use std::fmt;
+
+use super::MessagePayload;
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct PublishPayload {

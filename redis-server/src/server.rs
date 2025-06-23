@@ -1,10 +1,12 @@
+#![allow(clippy::result_large_err)]
+
 mod error;
 mod node;
 
 use std::{
     fs::OpenOptions,
-    io::Write,
-    net::{Ipv4Addr, SocketAddr, TcpListener},
+    io::{Read, Write},
+    net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream},
     path::PathBuf,
     sync::{
         Arc,
@@ -37,7 +39,16 @@ pub struct Server {
     logger_tx: Sender<Log>,
 }
 
+#[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
+pub enum ClientStream {
+    Encrypted(StreamOwned<ServerConnection, TcpStream>),
+    Unencrypted(TcpStream),
+}
+
 impl Server {
+    /// Crea una nueva instancia del servidor Redis, inicializando el nodo, logger y modo cluster/TLS.
+    /// Devuelve el servidor listo para aceptar conexiones de clientes.
     pub fn new(config: Config) -> Result<Self, InternalError> {
         let (logger_tx, logger_rx) = mpsc::channel();
         Self::setup_logger(config.logfile, logger_rx)?;
@@ -46,9 +57,15 @@ impl Server {
 
         if let Some(cluster_config) = config.cluster {
             logger_tx.send(log::info!("iniciando servidor en modo cluster"))?;
-            node.enable_cluster_mode(cluster_config).unwrap();
+            node.enable_cluster_mode(cluster_config)?;
         } else {
             logger_tx.send(log::info!("iniciando servidor en modo standalone"))?;
+        }
+
+        if config.tls.is_some() {
+            logger_tx.send(log::info!(
+                "iniciando servidor con encriptación TLS activada"
+            ))?;
         }
 
         Ok(Self {
@@ -89,6 +106,8 @@ impl Server {
         Ok(())
     }
 
+    /// Inicia el ciclo principal del servidor, aceptando conexiones y delegando a los threads del pool.
+    /// Gestiona conexiones TLS si está configurado y reporta errores por log.
     pub fn start(self) -> Result<(), InternalError> {
         let addr = SocketAddr::new(self.ip.into(), self.port);
         let listener = TcpListener::bind(addr).map_err(InternalError::AddrBind)?;
@@ -97,32 +116,24 @@ impl Server {
             .send(log::info!("servidor escuchando clientes en {:?}", addr))?;
 
         let tls_config = if let Some(tls_config) = self.tls_config {
-            let certs = CertificateDer::pem_file_iter(tls_config.cert_file)
-                .unwrap()
-                .map(|cert| cert.unwrap())
+            let certs = CertificateDer::pem_file_iter(tls_config.cert_file)?
+                .filter_map(|cert| cert.ok())
                 .collect();
 
-            let private_key = PrivateKeyDer::from_pem_file(tls_config.key_file).unwrap();
+            let private_key = PrivateKeyDer::from_pem_file(tls_config.key_file)?;
 
-            ServerConfig::builder()
-                .with_no_client_auth()
-                .with_single_cert(certs, private_key)
-                .unwrap()
+            Some(Arc::new(
+                ServerConfig::builder()
+                    .with_no_client_auth()
+                    .with_single_cert(certs, private_key)?,
+            ))
         } else {
-            ServerConfig::builder()
-                .with_no_client_auth()
-                .with_single_cert(
-                    vec![CertificateDer::from_slice(&[])],
-                    PrivateKeyDer::from_pem_file("../../test-tls/server.key").unwrap(),
-                )
-                .unwrap()
+            None
         };
 
-        let tls_config = Arc::new(tls_config);
-
-        for stream in listener.incoming() {
-            let stream = match stream {
-                Ok(conn) => conn,
+        for client in listener.incoming() {
+            let tcp_stream = match client {
+                Ok(tcp_stream) => tcp_stream,
                 Err(err) => {
                     self.logger_tx.send(log::error!("{err}"))?;
                     continue;
@@ -131,18 +142,47 @@ impl Server {
 
             let logger_tx = self.logger_tx.clone();
             let node = Arc::clone(&self.node);
-            let tls_config = Arc::clone(&tls_config);
+
+            let stream = if let Some(tls_config) = &tls_config {
+                let tls_stream =
+                    StreamOwned::new(ServerConnection::new(Arc::clone(tls_config))?, tcp_stream);
+                ClientStream::Encrypted(tls_stream)
+            } else {
+                ClientStream::Unencrypted(tcp_stream)
+            };
 
             self.thread_pool.execute(move || {
-                let tls_stream =
-                    StreamOwned::new(ServerConnection::new(tls_config).unwrap(), stream);
-
-                if let Err(err) = node.handle_client(tls_stream) {
-                    logger_tx.send(log::error!("{err}")).unwrap();
+                if let Err(err) = node.handle_client(stream) {
+                    let _ = logger_tx.send(log::error!("{err}"));
                 }
             })?;
         }
 
         Ok(())
+    }
+}
+
+impl Read for ClientStream {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            ClientStream::Encrypted(stream) => stream.read(buf),
+            ClientStream::Unencrypted(stream) => stream.read(buf),
+        }
+    }
+}
+
+impl Write for ClientStream {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            ClientStream::Encrypted(stream) => stream.write(buf),
+            ClientStream::Unencrypted(stream) => stream.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            ClientStream::Encrypted(stream) => stream.flush(),
+            ClientStream::Unencrypted(stream) => stream.flush(),
+        }
     }
 }
