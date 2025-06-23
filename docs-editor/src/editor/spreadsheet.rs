@@ -75,7 +75,7 @@ impl SpreadSheetEditor<'_> {
                         '-' => value_1 - value_2,
                         '*' => value_1 * value_2,
                         '/' => value_1 / value_2,
-                        _ => unimplemented!(),
+                        _ => todo!(),
                     }
                     .to_string(),
                 );
@@ -88,7 +88,7 @@ impl SpreadSheetEditor<'_> {
 
 fn parse_cell_ref(cell: &str) -> Option<(usize, usize)> {
     let first = cell.chars().next()?.to_ascii_uppercase();
-    if first.is_ascii_uppercase() {
+    if !first.is_ascii_uppercase() {
         return None;
     }
     let col = (first as u8 - b'A') as usize;
@@ -101,4 +101,34 @@ fn parse_cell_ref(cell: &str) -> Option<(usize, usize)> {
     let row = row_num - 1;
 
     Some((row, col))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parseo_de_nombre_de_celdas_validos() {
+        assert_eq!(parse_cell_ref("A1"), Some((0, 0)));
+        assert_eq!(parse_cell_ref("a1"), Some((0, 0)));
+        assert_eq!(parse_cell_ref("B2"), Some((1, 1)));
+        assert_eq!(parse_cell_ref("C10"), Some((9, 2)));
+        assert_eq!(parse_cell_ref("J5"), Some((4, 9)));
+    }
+
+    #[test]
+    fn parseo_de_nombre_de_celdas_invalidos() {
+        assert_eq!(parse_cell_ref(""), None);
+        assert_eq!(parse_cell_ref("A"), None);
+
+        assert_eq!(parse_cell_ref("1A"), None);
+        assert_eq!(parse_cell_ref("5"), None);
+
+        assert_eq!(parse_cell_ref("AX"), None);
+        assert_eq!(parse_cell_ref("C-1"), None);
+
+        assert_eq!(parse_cell_ref("AA10"), None);
+
+        assert_eq!(parse_cell_ref("A0"), None);
+    }
 }

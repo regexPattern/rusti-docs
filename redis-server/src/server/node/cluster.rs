@@ -496,9 +496,7 @@ impl ClusterActor {
 
                 let _ = log_tx.send(log::info!("¡Perdido elección!"));
 
-                self.myself.flags.0 &= !flags::FLAG_MASTER;
-                self.myself.flags.0 |= flags::FLAG_SLAVE;
-                self.myself.master_id = Some(header.id);
+                self.set_master(header.id, log_tx).unwrap();
 
                 self.failover_in_progress = false;
                 self.failover_epoch = None;

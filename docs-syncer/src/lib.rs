@@ -86,11 +86,15 @@ impl DocsSyncer {
                 if err.0.contains("MOVED") {
                     let mut parts = err.0.splitn(3, " ");
                     slot_addr = parts.nth(2).ok_or(Error::MissingData)?.parse().unwrap();
+                    print!("{}", log::debug!("redirigiendo a nodo en {slot_addr:?}"));
                     continue;
                 } else {
                     return Err(Error::RedisClient(err.0));
                 }
             }
+
+            print!("{}", log::debug!("comando enviado a nodo en {slot_addr:?}"));
+
             return Ok((slot_addr, reply));
         }
     }

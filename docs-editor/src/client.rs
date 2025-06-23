@@ -33,11 +33,14 @@ pub fn send_command(cmd: Command, db_addr: SocketAddr) -> Result<RespDataType, E
             if err.0.contains("MOVED") {
                 let mut err = err.0.splitn(3, " ");
                 slot_addr = err.nth(2).ok_or(Error::MissingData)?.parse().unwrap();
+                print!("{}", log::debug!("redirigiendo a nodo en {slot_addr:?}"));
                 continue;
             } else {
+                print!("{}", log::debug!("comando enviado a nodo en {slot_addr:?}"));
                 return Err(Error::RedisClient(err.0));
             }
         } else {
+            print!("{}", log::debug!("comando enviado a nodo en {slot_addr:?}"));
             return Ok(reply);
         }
     }

@@ -17,8 +17,8 @@ impl DocsSyncer {
         doc_content: String,
     ) -> Result<(), Error> {
         let cmd = match doc_kind.as_str() {
-            "TEXT" => self.persist_text_doc_cmd(&doc_id, &doc_content),
-            "SPREADSHEET" => self.persist_spreadsheet_doc_cmd(&doc_id, &doc_content),
+            "TEXT" => self.persist_text_document_command(&doc_id, &doc_content),
+            "SPREADSHEET" => self.persist_spreadsheet_document_command(&doc_id, &doc_content),
             _ => unreachable!(),
         };
 
@@ -40,14 +40,18 @@ impl DocsSyncer {
         Ok(())
     }
 
-    fn persist_text_doc_cmd(&self, doc_id: &str, doc_content: &str) -> StorageCommand {
+    fn persist_text_document_command(&self, doc_id: &str, doc_content: &str) -> StorageCommand {
         StorageCommand::Set(Set {
             key: BulkString::from(doc_id),
             value: BulkString::from(doc_content),
         })
     }
 
-    fn persist_spreadsheet_doc_cmd(&self, doc_id: &str, doc_content: &str) -> StorageCommand {
+    fn persist_spreadsheet_document_command(
+        &self,
+        doc_id: &str,
+        doc_content: &str,
+    ) -> StorageCommand {
         let mut field_value_pairs = Vec::new();
 
         for (i, value) in doc_content.split(',').enumerate() {
