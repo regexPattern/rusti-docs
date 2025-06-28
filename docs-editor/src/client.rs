@@ -31,9 +31,10 @@ pub fn send_command(cmd: Command, db_addr: SocketAddr) -> Result<RespDataType, E
 
         if let RespDataType::SimpleError(err) = reply {
             if err.0.contains("MOVED") {
-                let mut err = err.0.splitn(3, " ");
-                slot_addr = err.nth(2).ok_or(Error::MissingData)?.parse().unwrap();
-                print!("{}", log::debug!("redirigiendo a nodo en {slot_addr:?}"));
+                let port = err.0.split(":").last().ok_or(Error::MissingData)?;
+                let port = port.parse().unwrap();
+                print!("{}", log::debug!("redirigiendo a nodo en puerto {port}"));
+                slot_addr.set_port(port);
                 continue;
             } else {
                 print!("{}", log::debug!("comando enviado a nodo en {slot_addr:?}"));

@@ -4,7 +4,10 @@ use std::{
 };
 
 use docs_editor::DocsEditorApp;
-use eframe::{NativeOptions, egui::ViewportBuilder};
+use eframe::{
+    NativeOptions,
+    egui::{Vec2, ViewportBuilder},
+};
 
 fn main() {
     let icon = match eframe::icon_data::from_png_bytes(include_bytes!("../assets/docs-editor.png"))
@@ -24,6 +27,7 @@ fn main() {
             title: Some("Editor de Documentos".to_string()),
             active: Some(true),
             icon: Some(Arc::new(icon)),
+            inner_size: Some(Vec2::new(760.0, 675.0)),
             ..Default::default()
         },
         ..Default::default()
@@ -40,13 +44,13 @@ fn main() {
         Err(_) => 6379,
     };
 
-    let db_addr = SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), port);
+    let db_addr = SocketAddr::new(Ipv4Addr::new(0, 0, 0, 0).into(), port);
 
     if let Err(err) = eframe::run_native(
         "docs-editor",
         opts,
         Box::new(|cc| Ok(Box::new(DocsEditorApp::new(db_addr, cc)?))),
     ) {
-        print!("{}", log::error!("error inicializando app: {err}"));
+        print!("{}", log::error!("error inicializando editor: {err}"));
     }
 }

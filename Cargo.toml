@@ -2,9 +2,11 @@
 resolver = "2"
 members = [
 	"docs-editor",
+	"docs-gpt",
 	"docs-syncer",
 	"log",
 	"redis-cmd",
 	"redis-resp",
-	"redis-server"
+	"redis-server",
+	"thread-pool"
 ]

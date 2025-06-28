@@ -23,11 +23,9 @@ use rustls::{
     pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject},
     server::ServerConnection,
 };
+use thread_pool::ThreadPool;
 
-use crate::{
-    config::{Config, TlsConfig},
-    thread_pool::ThreadPool,
-};
+use crate::config::{Config, TlsConfig};
 
 #[derive(Debug)]
 pub struct Server {
@@ -36,7 +34,7 @@ pub struct Server {
     thread_pool: ThreadPool,
     node: Arc<Node>,
     tls_config: Option<TlsConfig>,
-    logger_tx: Sender<Log>,
+    log_tx: Sender<Log>,
 }
 
 #[derive(Debug)]
@@ -74,7 +72,7 @@ impl Server {
             thread_pool: ThreadPool::new(config.io_threads),
             node: Arc::new(node),
             tls_config: config.tls,
-            logger_tx,
+            log_tx: logger_tx,
         })
     }
 
@@ -112,7 +110,7 @@ impl Server {
         let addr = SocketAddr::new(self.ip.into(), self.port);
         let listener = TcpListener::bind(addr).map_err(InternalError::AddrBind)?;
 
-        self.logger_tx
+        self.log_tx
             .send(log::info!("servidor escuchando clientes en {:?}", addr))?;
 
         let tls_config = if let Some(tls_config) = self.tls_config {
@@ -135,12 +133,12 @@ impl Server {
             let tcp_stream = match client {
                 Ok(tcp_stream) => tcp_stream,
                 Err(err) => {
-                    self.logger_tx.send(log::error!("{err}"))?;
+                    self.log_tx.send(log::error!("{err}"))?;
                     continue;
                 }
             };
 
-            let logger_tx = self.logger_tx.clone();
+            let logger_tx = self.log_tx.clone();
             let node = Arc::clone(&self.node);
 
             let stream = if let Some(tls_config) = &tls_config {

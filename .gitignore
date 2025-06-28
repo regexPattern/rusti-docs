@@ -4,3 +4,4 @@ target/
 *.aof
 *.log
 *.rdb
+.env

@@ -1,0 +1,6 @@
+Dockerfile
+appendonly.aof
+redis-demo.sh
+redis-tls.conf
+test-cluster/
+test-tls/

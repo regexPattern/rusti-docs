@@ -1,0 +1,114 @@
+services:
+  redis_server_7000:
+    build:
+      dockerfile: Dockerfile
+    ports:
+      - "7000:7000"
+    volumes:
+      - ./redis-server/test-cluster/7000/redis.conf:/etc/redis/redis.conf
+    command: /etc/redis/redis.conf
+    networks:
+      redis_network:
+        ipv4_address: 172.20.0.10
+
+  redis_server_7001:
+    build:
+      dockerfile: Dockerfile
+    ports:
+      - "7001:7001"
+    volumes:
+      - ./redis-server/test-cluster/7001/redis.conf:/etc/redis/redis.conf
+    command: /etc/redis/redis.conf
+    networks:
+      redis_network:
+        ipv4_address: 172.20.0.11
+
+  redis_server_7002:
+    build:
+      dockerfile: Dockerfile
+    ports:
+      - "7002:7002"
+    volumes:
+      - ./redis-server/test-cluster/7002/redis.conf:/etc/redis/redis.conf
+    command: /etc/redis/redis.conf
+    networks:
+      redis_network:
+        ipv4_address: 172.20.0.12
+
+  redis_server_7003:
+    build:
+      dockerfile: Dockerfile
+    ports:
+      - "7003:7003"
+    volumes:
+      - ./redis-server/test-cluster/7003/redis.conf:/etc/redis/redis.conf
+    command: /etc/redis/redis.conf
+    networks:
+      redis_network:
+        ipv4_address: 172.20.0.13
+
+  redis_server_7004:
+    build:
+      dockerfile: Dockerfile
+    ports:
+      - "7004:7004"
+    volumes:
+      - ./redis-server/test-cluster/7004/redis.conf:/etc/redis/redis.conf
+    command: /etc/redis/redis.conf
+    networks:
+      redis_network:
+        ipv4_address: 172.20.0.14
+
+  redis_server_7005:
+    build:
+      dockerfile: Dockerfile
+    ports:
+      - "7005:7005"
+    volumes:
+      - ./redis-server/test-cluster/7005/redis.conf:/etc/redis/redis.conf
+    command: /etc/redis/redis.conf
+    networks:
+      redis_network:
+        ipv4_address: 172.20.0.15
+
+  redis_server_7006:
+    build:
+      dockerfile: Dockerfile
+    ports:
+      - "7006:7006"
+    volumes:
+      - ./redis-server/test-cluster/7006/redis.conf:/etc/redis/redis.conf
+    command: /etc/redis/redis.conf
+    networks:
+      redis_network:
+        ipv4_address: 172.20.0.16
+
+  redis_server_7007:
+    build:
+      dockerfile: Dockerfile
+    ports:
+      - "7007:7007"
+    volumes:
+      - ./redis-server/test-cluster/7007/redis.conf:/etc/redis/redis.conf
+    command: /etc/redis/redis.conf
+    networks:
+      redis_network:
+        ipv4_address: 172.20.0.17
+
+  redis_server_7008:
+    build:
+      dockerfile: Dockerfile
+    ports:
+      - "7008:7008"
+    volumes:
+      - ./redis-server/test-cluster/7008/redis.conf:/etc/redis/redis.conf
+    command: /etc/redis/redis.conf
+    networks:
+      redis_network:
+        ipv4_address: 172.20.0.18
+
+networks:
+  redis_network:
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24

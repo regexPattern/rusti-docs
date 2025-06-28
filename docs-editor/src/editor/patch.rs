@@ -177,9 +177,9 @@ mod tests {
     #[test]
     fn se_aplican_cambios_en_celdas() {
         let mut old: [[String; 10]; 10] = Default::default();
-        for i in 0..10 {
-            for j in 0..10 {
-                old[i][j] = "0".to_string();
+        for row in &mut old {
+            for col in row.iter_mut().take(10) {
+                *col = "0".to_string();
             }
         }
 

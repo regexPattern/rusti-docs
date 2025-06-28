@@ -28,6 +28,10 @@ pub struct Menu {
 
 impl Menu {
     /// Crea una nueva instancia del menú y carga la lista de documentos guardados.
+    /// /// Crea una nueva instancia del menú conectada a una base de datos Redis en la dirección dada.
+    ///
+    /// También inicializa la lista de documentos cargados desde la base de datos.
+    /// Si ocurre un error al leer los documentos, devuelve un `Error`.
     pub fn new(db_addr: SocketAddr) -> Result<Self, Error> {
         let mut menu = Self {
             db_addr,
@@ -35,12 +39,12 @@ impl Menu {
             new_doc_basename: String::new(),
         };
 
-        menu.update_saved_docs_list()?;
+        menu.update_saved_documents_list()?;
 
         Ok(menu)
     }
 
-    fn update_saved_docs_list(&mut self) -> Result<(), Error> {
+    fn update_saved_documents_list(&mut self) -> Result<(), Error> {
         print!(
             "{}",
             log::debug!("actualizando listado de documentos existentes")
@@ -75,7 +79,6 @@ impl Menu {
         }
 
         saved_docs.sort_by_key(|d| Reverse(d.last_edited));
-
         self.saved_docs = saved_docs;
 
         Ok(())
@@ -113,8 +116,6 @@ impl Menu {
         })
     }
 
-    /// Renderiza la interfaz de usuario del menú y permite seleccionar o crear documentos.
-    /// Devuelve el metadato del documento seleccionado, si hay alguno.
     pub fn ui(&mut self, ui: &mut egui::Ui) -> Option<DocMetadata> {
         let mut selected_doc = None;
 
@@ -173,9 +174,15 @@ impl Menu {
 
                         if let Some(kind) = DocKind::from_basename(&self.new_doc_basename) {
                             if ui.button("Crear Documento").clicked() {
-                                let doc_metadata = self.create_new_document(kind).unwrap();
-                                self.new_doc_basename.clear();
-                                self.saved_docs.insert(0, doc_metadata);
+                                match self.create_new_document(kind) {
+                                    Ok(doc_metadata) => {
+                                        self.new_doc_basename.clear();
+                                        self.saved_docs.insert(0, doc_metadata);
+                                    }
+                                    Err(err) => {
+                                        print!("{}", log::error!("error creando documento: {err}"))
+                                    }
+                                }
                             }
                         }
                     });

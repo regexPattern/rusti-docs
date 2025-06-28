@@ -25,7 +25,7 @@ impl DocsSyncer {
         thread::spawn(move || {
             loop {
                 thread::sleep(CLIENTS_LIST_INTERVAL);
-                actions_tx.send(DocsSyncerAction::PublishConnectedClients)?;
+                let _ = actions_tx.send(DocsSyncerAction::PublishConnectedClients);
             }
         })
     }
@@ -57,7 +57,7 @@ impl DocsSyncer {
             log::info!("cliente {client_id} accediendo al documento {doc_id}")
         );
 
-        let content = match doc_kind.as_str() {
+        let doc_content = match doc_kind.as_str() {
             "TEXT" => self.get_text_content(&doc_id)?,
             "SPREADSHEET" => self.get_spreadsheet_content(&doc_id)?,
             _ => unreachable!(),
@@ -67,14 +67,19 @@ impl DocsSyncer {
             "enviado al cliente {client_id} información de documento {doc_id} {doc_basename}"
         );
 
-        let mut stream = TcpStream::connect(self.db_addr).map_err(Error::Connection)?;
+        let mut stream = TcpStream::connect(self.db_addr).map_err(Error::OpenConn)?;
+
+        // FETCH_ACK@<CLIENT_ID>@<DOC_KIND>@<DOC_CONTENT>
+        let msg = format!("FETCH_ACK@{client_id}@{doc_kind}@{doc_content}");
 
         let cmd = Command::PubSub(PubSubCommand::Publish(Publish {
             channel: doc_id.into(),
-            message: format!("FETCH_ACK@{client_id}@{doc_kind}@{content}").into(),
+            message: msg.into(),
         }));
 
-        stream.write_all(&Vec::from(cmd)).map_err(Error::Write)?;
+        stream
+            .write_all(&Vec::from(cmd))
+            .map_err(Error::SendCommand)?;
 
         print!("{log_msg}");
 
@@ -99,6 +104,7 @@ impl DocsSyncer {
             if !clients.is_empty() {
                 let clients_ids: Vec<_> = clients.iter().map(|c| c.as_str()).collect();
 
+                // CLIENTS@<CLIENT_ID_1>,<CLIENT_ID_2>,<CLIENT_ID_3>,...
                 let msg = format!("CLIENTS@{}", clients_ids.join(","));
 
                 let cmd = Command::PubSub(PubSubCommand::Publish(Publish {
@@ -106,9 +112,11 @@ impl DocsSyncer {
                     message: msg.into(),
                 }));
 
-                let mut stream = TcpStream::connect(self.db_addr).map_err(Error::Connection)?;
+                let mut stream = TcpStream::connect(self.db_addr).map_err(Error::OpenConn)?;
 
-                stream.write_all(&Vec::from(cmd)).map_err(Error::Write)?;
+                stream
+                    .write_all(&Vec::from(cmd))
+                    .map_err(Error::SendCommand)?;
             }
         }
 

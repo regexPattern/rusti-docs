@@ -4,7 +4,6 @@ use log::Log;
 use rustls::pki_types::pem;
 
 use super::node;
-use crate::thread_pool;
 
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]

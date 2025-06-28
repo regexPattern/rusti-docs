@@ -1,16 +1,12 @@
 [package]
-name = "redis_server"
+name = "docs_gpt"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-chrono = "0.4.41"
-crc16 = "0.4"
-hex = "0.4.3"
 log = { path = "../log" }
-rand = "0.9.1"
 redis_cmd = { path = "../redis-cmd" }
 redis_resp = { path = "../redis-resp" }
-rustls = { version = "0.23.28" }
+serde_json = "1.0.140"
 thread_pool = { path = "../thread-pool" }
-uuid = { version = "1.16.0", features = ["v4"] }
+ureq = { version = "3.0.12", features = ["json"] }

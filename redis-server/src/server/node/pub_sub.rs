@@ -3,8 +3,9 @@ mod error;
 use std::{
     collections::HashMap,
     io::{self, BufReader, Write, prelude::BufRead},
+    ops::DerefMut,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, RwLock,
         mpsc::{self, Receiver, Sender},
     },
     thread,
@@ -15,6 +16,7 @@ use error::OperationError;
 use log::Log;
 use redis_cmd::{Command, pub_sub::*};
 use redis_resp::{Array, BulkString, Integer, RespDataType, SimpleError};
+use rustls::Stream;
 use uuid::Uuid;
 
 use crate::server::{
@@ -164,70 +166,100 @@ impl PubSubBroker {
         sub_reply_rx: Receiver<Vec<u8>>,
         log_tx: Sender<Log>,
     ) -> Result<(), InternalError> {
-        let mut reader = BufReader::new(stream);
+        let (tls_conn, stream) = match stream {
+            ClientStream::Encrypted(tls_stream) => {
+                let (tls_conn, stream) = tls_stream.into_parts();
+                (Some(Arc::new(RwLock::new(tls_conn))), stream)
+            }
+            ClientStream::Unencrypted(tcp_stream) => (None, tcp_stream),
+        };
 
-        match reader.get_mut() {
-            ClientStream::Encrypted(owned) => owned.sock.set_nonblocking(true).unwrap(),
-            ClientStream::Unencrypted(tcp) => tcp.set_nonblocking(true).unwrap(),
-        }
+        let mut read_conn = tls_conn.clone();
+        let mut write_conn = tls_conn;
+        let read_stream = stream.try_clone().unwrap();
+        let mut write_stream = stream;
 
-        loop {
-            if let Ok(message) = sub_reply_rx.try_recv() {
-                if let Err(err) = reader.get_mut().write_all(&message) {
-                    let _ = log_tx.send(log::warn!(
+        let subs_reg_clone = Arc::clone(&subs_reg);
+        let log_tx_clone = log_tx.clone();
+
+        thread::spawn(move || {
+            for msg in sub_reply_rx {
+                let res = match &mut write_conn {
+                    Some(tls_conn) => {
+                        let mut tls_conn = tls_conn.write().unwrap();
+                        let mut tls_stream = Stream {
+                            conn: tls_conn.deref_mut(),
+                            sock: &mut write_stream,
+                        };
+                        tls_stream.write_all(&msg)
+                    }
+                    None => write_stream.write_all(&msg),
+                };
+                if let Err(err) = res {
+                    let _ = log_tx_clone.send(log::warn!(
                         "error mandando mensaje a cliente {sub_id}: {err}"
                     ));
                 }
             }
 
-            if let ClientStream::Encrypted(owned) = reader.get_mut() {
-                let _ = owned.conn.complete_io(&mut owned.sock);
-            }
+            let _ = log_tx_clone.send(log::warn!("stream del cliente desconectado {sub_id}"));
+            Self::prune_sub(&subs_reg_clone, sub_id, &log_tx_clone).unwrap();
+        });
 
-            match reader.fill_buf() {
-                Ok(bytes) if !bytes.is_empty() => {
-                    let cmd = Command::try_from(bytes);
+        thread::spawn(move || {
+            let mut reader = BufReader::new(read_stream);
 
-                    let length = bytes.len();
-                    reader.consume(length);
-
-                    match cmd {
-                        Ok(cmd) => {
-                            Self::handle_incoming_command(
-                                &subs_reg,
-                                sub_id,
-                                sub_reply_tx.clone(),
-                                cmd,
-                                &log_tx,
-                            )?;
-                        }
-                        Err(err) => {
-                            log_tx.send(log::info!(
-                                "comando enviado por cliente {sub_id} es invalido",
-                            ))?;
-
-                            sub_reply_tx.send(SimpleError::from(err).into())?;
-                            continue;
-                        }
-                    }
+            loop {
+                if let Some(tls_conn) = &mut read_conn {
+                    let mut tls_conn = tls_conn.write().unwrap();
+                    let _ = tls_conn.complete_io(reader.get_mut());
                 }
-                Ok(_) => break,
-                Err(err) => match err.kind() {
-                    io::ErrorKind::WouldBlock => continue,
-                    io::ErrorKind::ConnectionReset => break,
-                    _ => {
-                        let _ = log_tx.send(log::warn!(
-                            "error escuchando stream del cliente {sub_id}: {err}",
-                        ));
-                        break;
+
+                match reader.fill_buf() {
+                    Ok(bytes) if !bytes.is_empty() => {
+                        let cmd = Command::try_from(bytes);
+
+                        let length = bytes.len();
+                        reader.consume(length);
+
+                        match cmd {
+                            Ok(cmd) => {
+                                Self::handle_incoming_command(
+                                    &subs_reg,
+                                    sub_id,
+                                    sub_reply_tx.clone(),
+                                    cmd,
+                                    &log_tx,
+                                )
+                                .unwrap();
+                            }
+                            Err(err) => {
+                                let _ = log_tx.send(log::info!(
+                                    "comando enviado por cliente {sub_id} es invalido",
+                                ));
+
+                                sub_reply_tx.send(SimpleError::from(err).into()).unwrap();
+                                continue;
+                            }
+                        }
                     }
-                },
+                    Ok(_) => break,
+                    Err(err) => match err.kind() {
+                        io::ErrorKind::WouldBlock => continue,
+                        io::ErrorKind::ConnectionReset => break,
+                        _ => {
+                            let _ = log_tx.send(log::warn!(
+                                "error escuchando stream del cliente {sub_id}: {err}",
+                            ));
+                            break;
+                        }
+                    },
+                }
             }
-        }
 
-        let _ = log_tx.send(log::warn!("stream del cliente desconectado {sub_id}"));
-
-        Self::prune_sub(&subs_reg, sub_id, &log_tx).unwrap();
+            let _ = log_tx.send(log::warn!("stream del cliente desconectado {sub_id}"));
+            Self::prune_sub(&subs_reg, sub_id, &log_tx).unwrap();
+        });
 
         Ok(())
     }

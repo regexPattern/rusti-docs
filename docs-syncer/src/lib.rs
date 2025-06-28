@@ -5,7 +5,7 @@ mod persistence;
 use std::{
     collections::{HashMap, HashSet},
     io::{BufReader, prelude::*},
-    net::{Ipv4Addr, Shutdown, SocketAddr, TcpStream},
+    net::{Shutdown, SocketAddr, TcpStream},
     sync::mpsc::{self, Sender},
     thread::{self, JoinHandle},
 };
@@ -19,14 +19,6 @@ use redis_cmd::{
 use redis_resp::{BulkString, RespDataType};
 
 use crate::error::Error;
-
-/// Información de acceso a la base de datos para los documentos.
-#[derive(Clone, Debug)]
-pub struct DbAccessInfo {
-    pub saved_docs_ids_key: String,
-    pub saved_docs_ts_key: String,
-    pub addr: SocketAddr,
-}
 
 /// Sincronizador de documentos: gestiona clientes conectados y persistencia.
 #[derive(Debug)]
@@ -43,7 +35,7 @@ pub enum DocsSyncerAction {
         doc_id: BulkString,
         doc_basename: BulkString,
     },
-    SubscribeToDocument {
+    SubscribeToDocuments {
         docs_ids: Vec<BulkString>,
     },
     ConnectClient {
@@ -65,46 +57,10 @@ pub enum DocsSyncerAction {
 }
 
 impl DocsSyncer {
-    fn cluster_command(
-        mut slot_addr: SocketAddr,
-        cmd: Vec<u8>,
-    ) -> Result<(SocketAddr, RespDataType), Error> {
-        loop {
-            let mut stream = TcpStream::connect(slot_addr).map_err(Error::Connection)?;
-            stream.write_all(&cmd).map_err(Error::Write)?;
-            stream
-                .shutdown(Shutdown::Write)
-                .map_err(Error::Connection)?;
-
-            let mut buffer = Vec::new();
-            stream.read_to_end(&mut buffer).map_err(Error::Read)?;
-
-            let reply =
-                RespDataType::try_from(buffer.as_slice()).map_err(|_| Error::InvalidRespReply)?;
-
-            if let RespDataType::SimpleError(err) = reply {
-                if err.0.contains("MOVED") {
-                    let mut parts = err.0.splitn(3, " ");
-                    slot_addr = parts.nth(2).ok_or(Error::MissingData)?.parse().unwrap();
-                    print!("{}", log::debug!("redirigiendo a nodo en {slot_addr:?}"));
-                    continue;
-                } else {
-                    return Err(Error::RedisClient(err.0));
-                }
-            }
-
-            print!("{}", log::debug!("comando enviado a nodo en {slot_addr:?}"));
-
-            return Ok((slot_addr, reply));
-        }
-    }
-
-    pub fn new(port: u16) -> Result<Self, Error> {
-        let db_addr = SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), port);
-
+    pub fn new(db_addr: SocketAddr) -> Result<Self, Error> {
         Ok(Self {
             db_addr,
-            docs_stream: TcpStream::connect(db_addr).map_err(Error::Connection)?,
+            docs_stream: TcpStream::connect(db_addr).map_err(Error::OpenConn)?,
             connected_clients: HashMap::new(),
         })
     }
@@ -113,9 +69,7 @@ impl DocsSyncer {
     /// Devuelve los handles de los threads lanzados.
     pub fn start(mut self) -> Result<Vec<JoinHandle<Result<(), Error>>>, Error> {
         let db_addr = self.db_addr;
-
-        let docs_stream = self.docs_stream.try_clone().map_err(Error::Connection)?;
-
+        let docs_stream = self.docs_stream.try_clone().map_err(Error::OpenConn)?;
         let (actions_tx, actions_rx) = mpsc::channel();
 
         let mut handles = Vec::new();
@@ -130,7 +84,7 @@ impl DocsSyncer {
                         self.create_new_document(doc_id.clone(), doc_basename)?;
                         self.subscribe_to_document(vec![doc_id])?;
                     }
-                    DocsSyncerAction::SubscribeToDocument { docs_ids } => {
+                    DocsSyncerAction::SubscribeToDocuments { docs_ids } => {
                         self.subscribe_to_document(docs_ids)?;
                     }
                     DocsSyncerAction::ConnectClient {
@@ -171,6 +125,39 @@ impl DocsSyncer {
         Ok(handles)
     }
 
+    fn cluster_command(
+        mut slot_addr: SocketAddr,
+        cmd: Vec<u8>,
+    ) -> Result<(SocketAddr, RespDataType), Error> {
+        loop {
+            let mut stream = TcpStream::connect(slot_addr).map_err(Error::OpenConn)?;
+            stream.write_all(&cmd).map_err(Error::SendCommand)?;
+            stream.shutdown(Shutdown::Write).map_err(Error::OpenConn)?;
+
+            let mut buffer = Vec::new();
+            stream.read_to_end(&mut buffer).map_err(Error::ReadReply)?;
+
+            let reply =
+                RespDataType::try_from(buffer.as_slice()).map_err(|_| Error::ReplyRespType)?;
+
+            if let RespDataType::SimpleError(err) = reply {
+                if err.0.contains("MOVED") {
+                    let port = err.0.split(":").last().ok_or(Error::MissingData)?;
+                    let port = port.parse().unwrap();
+                    print!("{}", log::debug!("redirigiendo a nodo en puerto {port}"));
+                    slot_addr.set_port(port);
+                    continue;
+                } else {
+                    return Err(Error::RedisClient(err.0));
+                }
+            }
+
+            print!("{}", log::debug!("comando enviado a nodo en {slot_addr:?}"));
+
+            return Ok((slot_addr, reply));
+        }
+    }
+
     fn create_new_document(
         &mut self,
         doc_id: BulkString,
@@ -209,7 +196,7 @@ impl DocsSyncer {
 
         self.docs_stream
             .write_all(&Vec::from(cmd))
-            .map_err(Error::Write)?;
+            .map_err(Error::SendCommand)?;
 
         print!("{}", log::info!("{log_msg}"));
 
@@ -295,9 +282,9 @@ impl DocsSyncer {
         };
 
         if !saved_docs_ids.is_empty() {
-            actions_tx.send(DocsSyncerAction::SubscribeToDocument {
+            let _ = actions_tx.send(DocsSyncerAction::SubscribeToDocuments {
                 docs_ids: saved_docs_ids,
-            })?;
+            });
         } else {
             print!("{}", log::info!("no hay documentos existentes"));
         }
@@ -313,11 +300,11 @@ impl DocsSyncer {
             channels: vec!["docs_syncer".into()],
         }));
 
-        let mut docs_creator_stream = TcpStream::connect(db_addr).map_err(Error::Connection)?;
+        let mut docs_creator_stream = TcpStream::connect(db_addr).map_err(Error::OpenConn)?;
 
         docs_creator_stream
             .write_all(&Vec::from(cmd))
-            .map_err(Error::Write)?;
+            .map_err(Error::SendCommand)?;
 
         Ok(thread::spawn(move || {
             let mut buffer = BufReader::new(&mut docs_creator_stream);
@@ -352,7 +339,7 @@ impl DocsSyncer {
         bytes: &[u8],
         actions_tx: &Sender<DocsSyncerAction>,
     ) -> Result<(), Error> {
-        let reply = RespDataType::try_from(bytes).map_err(|_| Error::InvalidRespReply)?;
+        let reply = RespDataType::try_from(bytes).map_err(|_| Error::ReplyRespType)?;
 
         let mut msg = match reply {
             RespDataType::Array(payload) => payload.into_iter().filter_map(|e| {
@@ -370,10 +357,10 @@ impl DocsSyncer {
             let doc_metadata = doc_metadata.split('@');
             let mut doc_metadata = doc_metadata.map(BulkString::from);
 
-            actions_tx.send(DocsSyncerAction::CreateNewDocument {
+            let _ = actions_tx.send(DocsSyncerAction::CreateNewDocument {
                 doc_id: doc_metadata.next().ok_or(Error::MissingData)?,
                 doc_basename: doc_metadata.next().ok_or(Error::MissingData)?,
-            })?;
+            });
         } else {
             print!(
                 "{}",
@@ -394,7 +381,7 @@ impl DocsSyncer {
             loop {
                 match buffer.fill_buf() {
                     Ok(bytes) if !bytes.is_empty() => {
-                        Self::handle_documents_channels_message(bytes, &actions_tx)?;
+                        Self::handle_document_channels_message(bytes, &actions_tx)?;
                         let length = bytes.len();
                         buffer.consume(length);
                     }
@@ -417,11 +404,11 @@ impl DocsSyncer {
         })
     }
 
-    fn handle_documents_channels_message(
+    fn handle_document_channels_message(
         bytes: &[u8],
         actions_tx: &Sender<DocsSyncerAction>,
     ) -> Result<(), Error> {
-        let reply = RespDataType::try_from(bytes).map_err(|_| Error::InvalidRespReply)?;
+        let reply = RespDataType::try_from(bytes).map_err(|_| Error::ReplyRespType)?;
 
         let mut payload = match reply {
             RespDataType::Array(payload) => payload.into_iter().filter_map(|e| {
@@ -449,6 +436,7 @@ impl DocsSyncer {
         actions_tx: &Sender<DocsSyncerAction>,
     ) -> Result<(), Error> {
         match payload.split_once('@').ok_or(Error::MissingData)? {
+            // FETCH_REQ@<CLIENT_ID>@<DOC_KIND>@<DOC_BASENAME>
             ("FETCH_REQ", payload) => {
                 let mut payload = payload.splitn(3, '@').map(String::from);
                 let _ = actions_tx.send(DocsSyncerAction::ConnectClient {
@@ -458,6 +446,7 @@ impl DocsSyncer {
                     doc_basename: payload.next().ok_or(Error::MissingData)?,
                 });
             }
+            // PATCH@<CLIENT_ID>@<DOC_KIND>@<DOC_CONTENT>
             ("PATCH", payload) => {
                 let mut payload = payload.splitn(3, '@').map(String::from);
                 let _ = actions_tx.send(DocsSyncerAction::PersistDocument {
@@ -466,6 +455,7 @@ impl DocsSyncer {
                     doc_content: payload.next().ok_or(Error::MissingData)?,
                 });
             }
+            // LEAVE@<CLIENT_ID>
             ("LEAVE", client_id) => {
                 let _ = actions_tx.send(DocsSyncerAction::DisconnectClient {
                     client_id: client_id.to_string(),

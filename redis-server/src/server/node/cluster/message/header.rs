@@ -136,7 +136,7 @@ mod tests {
     fn message_header_sin_master_id_se_serializa_y_deserializa_correctamente() {
         let header = MessageHeader {
             id: [0; 20],
-            ip: Ipv4Addr::new(127, 0, 0, 1),
+            ip: Ipv4Addr::new(0, 0, 0, 0),
             port: 7000,
             cluster_port: 17000,
             flags: Flags(flags::FLAG_MYSELF | flags::FLAG_MASTER),
@@ -154,7 +154,7 @@ mod tests {
     fn message_header_con_master_id_se_serializa_y_deserializa_correctamente() {
         let header = MessageHeader {
             id: [0; 20],
-            ip: Ipv4Addr::new(127, 0, 0, 1),
+            ip: Ipv4Addr::new(0, 0, 0, 0),
             port: 7000,
             cluster_port: 17000,
             flags: Flags(flags::FLAG_MYSELF | flags::FLAG_MASTER),

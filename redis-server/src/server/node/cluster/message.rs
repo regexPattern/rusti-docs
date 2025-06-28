@@ -50,7 +50,7 @@ mod tests {
     fn message_se_serializa_y_deserializa_correctamente() {
         let header = MessageHeader {
             id: [0; 20],
-            ip: Ipv4Addr::new(127, 0, 0, 1),
+            ip: Ipv4Addr::new(0, 0, 0, 0),
             port: 7000,
             cluster_port: 17000,
             flags: Flags(flags::FLAG_MYSELF | flags::FLAG_MASTER),
@@ -63,7 +63,7 @@ mod tests {
             kind: GossipKind::Meet,
             nodes: vec![GossipNode {
                 id: [1; 20],
-                ip: Ipv4Addr::new(127, 0, 0, 1),
+                ip: Ipv4Addr::new(0, 0, 0, 0),
                 port: 7001,
                 cluster_port: 17001,
                 flags: Flags(flags::FLAG_MASTER),

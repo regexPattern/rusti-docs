@@ -10,11 +10,11 @@ impl std::error::Error for Error {}
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let desc = match self {
+        let err = match self {
             Error::SendError(err) => err,
             Error::NoSender => &"worker no tiene sender para enviar tarea".to_string(),
         };
 
-        write!(f, "thread-pool error: {desc}")
+        write!(f, "thread-pool error: {err}")
     }
 }

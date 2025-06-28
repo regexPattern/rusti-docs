@@ -1,15 +1,5 @@
-use std::{fmt, io};
+use std::{fmt, io, ops::Range};
 
-/// Enumera los posibles errores de la aplicación relacionados con Redis y documentos.
-///
-/// - `OpenConn(io::Error)`: Error al abrir una conexión TCP con Redis.
-/// - `SendCommand(io::Error)`: Error al enviar un comando a Redis.
-/// - `ReadReply(io::Error)`: Error al leer la respuesta de Redis.
-/// - `ReplyRespRead(redis_resp::Error)`: Error al deserializar la respuesta de Redis.
-/// - `ReplyRespType`: La respuesta de Redis tiene un tipo inesperado.
-/// - `UnsupportedDocType(String)`: El tipo de documento no es soportado por la aplicación.
-/// - `MissingData`: Faltan datos en el mensaje recibido.
-/// - `RedisClient(String)`: Error enviado por el servidor Redis.
 #[derive(Debug)]
 pub enum Error {
     OpenConn(io::Error),
@@ -20,6 +10,7 @@ pub enum Error {
     UnsupportedDocType(String),
     MissingData,
     RedisClient(String),
+    InvalidContentIndexRange(Range<usize>, usize),
 }
 
 impl fmt::Display for Error {
@@ -43,6 +34,11 @@ impl fmt::Display for Error {
                 write!(f, "datos faltantes en mensaje de clientes y microservicio")
             }
             Error::RedisClient(err) => write!(f, "error enviado del servidor: {err}"),
+            Error::InvalidContentIndexRange(range, n_bytes) => write!(
+                f,
+                "rango {}-{} es inválido para contenido de {n_bytes} bytes",
+                range.start, range.end
+            ),
         }
     }
 }

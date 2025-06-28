@@ -1,6 +1,6 @@
 use std::net::{Ipv4Addr, SocketAddr};
 
-use docs_syncer::DocsSyncer;
+use docs_gpt::DocsGpt;
 
 fn main() {
     let ip: Ipv4Addr = match std::env::var("REDIS_HOST") {
@@ -27,7 +27,7 @@ fn main() {
 
     let db_addr = SocketAddr::new(ip.into(), port);
 
-    let docs_syncer = match DocsSyncer::new(db_addr) {
+    let docs_gpt = match DocsGpt::new(db_addr) {
         Ok(docs_syncer) => docs_syncer,
         Err(err) => {
             print!("{}", log::error!("{err}"));
@@ -35,14 +35,14 @@ fn main() {
         }
     };
 
-    match docs_syncer.start() {
+    match docs_gpt.start() {
         Ok(handles) => {
             for h in handles.into_iter() {
-                if let Err(err) = h.join().unwrap() {
-                    print!("{}", log::error!("{err}"));
-                }
+                let _ = h.join();
             }
         }
-        Err(err) => print!("{}", log::error!("{err}")),
+        Err(err) => {
+            print!("{}", log::error!("{err}"));
+        }
     }
 }

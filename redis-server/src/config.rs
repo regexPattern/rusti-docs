@@ -40,7 +40,7 @@ pub struct ClusterConfig {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            bind: Ipv4Addr::new(127, 0, 0, 1),
+            bind: Ipv4Addr::new(0, 0, 0, 0),
             port: 6379,
             io_threads: 8,
             logfile: None,

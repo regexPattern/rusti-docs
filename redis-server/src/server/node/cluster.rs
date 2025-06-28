@@ -624,7 +624,7 @@ mod tests {
     use super::*;
 
     pub fn dummy_empty_cluster_actor() -> ClusterActor {
-        let cluster_config = ClusterConfig::default(Ipv4Addr::new(127, 0, 0, 1), 6379);
+        let cluster_config = ClusterConfig::default(Ipv4Addr::new(0, 0, 0, 0), 6379);
 
         let (storage_tx, _) = mpsc::channel();
         let (pub_sub_tx, _) = mpsc::channel();
@@ -659,7 +659,7 @@ mod tests {
 
         let header = MessageHeader {
             id,
-            ip: Ipv4Addr::new(127, 0, 0, 1),
+            ip: Ipv4Addr::new(0, 0, 0, 0),
             port: 7000,
             cluster_port: 17000,
             flags: Flags(flags::FLAG_MYSELF | flags::FLAG_MASTER),
@@ -687,7 +687,7 @@ mod tests {
 
         let mut header = MessageHeader {
             id,
-            ip: Ipv4Addr::new(127, 0, 0, 1),
+            ip: Ipv4Addr::new(0, 0, 0, 0),
             port: 7000,
             cluster_port: 17000,
             flags: Flags(flags::FLAG_MYSELF | flags::FLAG_MASTER),

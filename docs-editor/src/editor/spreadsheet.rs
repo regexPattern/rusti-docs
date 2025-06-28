@@ -66,8 +66,8 @@ impl SpreadSheetEditor<'_> {
                 let (row_1, col_1) = parse_cell_ref(left)?;
                 let (row_2, col_2) = parse_cell_ref(right)?;
 
-                let value_1 = self.0[row_1][col_1].parse::<i64>().unwrap();
-                let value_2 = self.0[row_2][col_2].parse::<i64>().unwrap();
+                let value_1 = self.0[row_1][col_1].parse::<i64>().unwrap_or_default();
+                let value_2 = self.0[row_2][col_2].parse::<i64>().unwrap_or_default();
 
                 return Some(
                     match op {
