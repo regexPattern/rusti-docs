@@ -1,7 +1,7 @@
 services:
   redis_server_7000:
     build:
-      dockerfile: Dockerfile
+      dockerfile: redis-server.Dockerfile
     ports:
       - "7000:7000"
     volumes:
@@ -13,7 +13,7 @@ services:
 
   redis_server_7001:
     build:
-      dockerfile: Dockerfile
+      dockerfile: redis-server.Dockerfile
     ports:
       - "7001:7001"
     volumes:
@@ -25,7 +25,7 @@ services:
 
   redis_server_7002:
     build:
-      dockerfile: Dockerfile
+      dockerfile: redis-server.Dockerfile
     ports:
       - "7002:7002"
     volumes:
@@ -37,7 +37,7 @@ services:
 
   redis_server_7003:
     build:
-      dockerfile: Dockerfile
+      dockerfile: redis-server.Dockerfile
     ports:
       - "7003:7003"
     volumes:
@@ -49,7 +49,7 @@ services:
 
   redis_server_7004:
     build:
-      dockerfile: Dockerfile
+      dockerfile: redis-server.Dockerfile
     ports:
       - "7004:7004"
     volumes:
@@ -61,7 +61,7 @@ services:
 
   redis_server_7005:
     build:
-      dockerfile: Dockerfile
+      dockerfile: redis-server.Dockerfile
     ports:
       - "7005:7005"
     volumes:
@@ -73,7 +73,7 @@ services:
 
   redis_server_7006:
     build:
-      dockerfile: Dockerfile
+      dockerfile: redis-server.Dockerfile
     ports:
       - "7006:7006"
     volumes:
@@ -85,7 +85,7 @@ services:
 
   redis_server_7007:
     build:
-      dockerfile: Dockerfile
+      dockerfile: redis-server.Dockerfile
     ports:
       - "7007:7007"
     volumes:
@@ -97,7 +97,7 @@ services:
 
   redis_server_7008:
     build:
-      dockerfile: Dockerfile
+      dockerfile: redis-server.Dockerfile
     ports:
       - "7008:7008"
     volumes:
@@ -106,6 +106,45 @@ services:
     networks:
       redis_network:
         ipv4_address: 172.20.0.18
+
+  docs_syncer:
+    build:
+      dockerfile: docs-syncer.Dockerfile
+    environment:
+      REDIS_HOST: 172.20.0.10
+      REDIS_PORT: 7000
+    depends_on:
+      - redis_server_7000
+      - redis_server_7001
+      - redis_server_7002
+      - redis_server_7003
+      - redis_server_7004
+      - redis_server_7005
+      - redis_server_7006
+      - redis_server_7007
+      - redis_server_7008
+    networks:
+      - redis_network
+
+  docs_gpt:
+    build:
+      dockerfile: docs-gpt.Dockerfile
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?}
+      REDIS_HOST: 172.20.0.10
+      REDIS_PORT: 7000
+    depends_on:
+      - redis_server_7000
+      - redis_server_7001
+      - redis_server_7002
+      - redis_server_7003
+      - redis_server_7004
+      - redis_server_7005
+      - redis_server_7006
+      - redis_server_7007
+      - redis_server_7008
+    networks:
+      - redis_network
 
 networks:
   redis_network:

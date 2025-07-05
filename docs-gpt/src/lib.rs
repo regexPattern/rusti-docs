@@ -281,10 +281,12 @@ impl DocsGpt {
                 RespDataType::Null => "".to_string(),
                 RespDataType::SimpleError(err) => {
                     if err.0.contains("MOVED") {
-                        let port = err.0.split(":").last().ok_or(Error::MissingData)?;
-                        let port = port.parse().unwrap();
-                        print!("{}", log::debug!("redirigiendo a nodo en puerto {port}"));
-                        slot_addr.set_port(port);
+                        let new_slot_addr = err.0.split(" ").last().ok_or(Error::MissingData)?;
+                        slot_addr = new_slot_addr.parse().unwrap();
+                        print!(
+                            "{}",
+                            log::debug!("redirigiendo a nodo en puerto {slot_addr}")
+                        );
                         continue;
                     } else {
                         return Err(Error::RedisClient(err.0));

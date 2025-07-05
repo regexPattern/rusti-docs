@@ -14,7 +14,7 @@ use chrono::Local;
 use redis_cmd::{
     Command,
     pub_sub::{PubSubCommand, Subscribe},
-    storage::{Get, HGetAll, HKeys, HSet, StorageCommand},
+    storage::{Get, HGetAll, HSet, StorageCommand},
 };
 use redis_resp::{BulkString, RespDataType};
 
@@ -35,8 +35,8 @@ pub enum DocsSyncerAction {
         doc_id: BulkString,
         doc_basename: BulkString,
     },
-    SubscribeToDocuments {
-        docs_ids: Vec<BulkString>,
+    SubscribeToDocument {
+        docs_ids: BulkString,
     },
     ConnectClient {
         client_id: String,
@@ -81,9 +81,9 @@ impl DocsSyncer {
                         doc_basename,
                     } => {
                         self.create_new_document(doc_id.clone(), doc_basename)?;
-                        self.subscribe_to_document(vec![doc_id])?;
+                        self.subscribe_to_document(doc_id)?;
                     }
-                    DocsSyncerAction::SubscribeToDocuments { docs_ids } => {
+                    DocsSyncerAction::SubscribeToDocument { docs_ids } => {
                         self.subscribe_to_document(docs_ids)?;
                     }
                     DocsSyncerAction::ConnectClient {
@@ -92,7 +92,9 @@ impl DocsSyncer {
                         doc_kind,
                         doc_basename,
                     } => {
+                        let doc_id_bs = BulkString::from(&doc_id);
                         self.connect_client(client_id, doc_id, doc_kind, doc_basename)?;
+                        self.subscribe_to_document(doc_id_bs)?;
                     }
                     DocsSyncerAction::DisconnectClient { client_id, doc_id } => {
                         self.disconnect_client(client_id, doc_id)
@@ -113,7 +115,7 @@ impl DocsSyncer {
             Ok(())
         });
 
-        Self::subscribe_to_saved_documents(db_addr, actions_tx.clone())?;
+        // Self::subscribe_to_saved_documents(db_addr, actions_tx.clone())?;
 
         Self::start_documents_creator(db_addr, actions_tx.clone())?;
         Self::start_documents_watcher(docs_stream, actions_tx.clone());
@@ -139,10 +141,12 @@ impl DocsSyncer {
 
             if let RespDataType::SimpleError(err) = reply {
                 if err.0.contains("MOVED") {
-                    let port = err.0.split(":").last().ok_or(Error::MissingData)?;
-                    let port = port.parse().unwrap();
-                    print!("{}", log::debug!("redirigiendo a nodo en puerto {port}"));
-                    slot_addr.set_port(port);
+                    let new_slot_addr = err.0.split(" ").last().ok_or(Error::MissingData)?;
+                    slot_addr = new_slot_addr.parse().unwrap();
+                    print!(
+                        "{}",
+                        log::debug!("redirigiendo a nodo en puerto {slot_addr}")
+                    );
                     continue;
                 } else {
                     return Err(Error::RedisClient(err.0));
@@ -182,20 +186,18 @@ impl DocsSyncer {
         Ok(())
     }
 
-    fn subscribe_to_document(&mut self, docs_ids: Vec<BulkString>) -> Result<(), Error> {
-        let mut log_msg = String::from("suscrito a documentos");
+    fn subscribe_to_document(&mut self, doc_id: BulkString) -> Result<(), Error> {
+        let log_msg = log::info!("suscrito a documento {doc_id}");
 
-        for doc_id in &docs_ids {
-            log_msg.push_str(&format!(" {doc_id}"));
-        }
-
-        let cmd = Command::PubSub(PubSubCommand::Subscribe(Subscribe { channels: docs_ids }));
+        let cmd = Command::PubSub(PubSubCommand::Subscribe(Subscribe {
+            channels: vec![doc_id],
+        }));
 
         self.docs_stream
             .write_all(&Vec::from(cmd))
             .map_err(Error::SendCommand)?;
 
-        print!("{}", log::info!("{log_msg}"));
+        print!("{log_msg}");
 
         Ok(())
     }
@@ -252,41 +254,6 @@ impl DocsSyncer {
             .collect::<Vec<_>>()
             .join(",")
             .into())
-    }
-
-    fn subscribe_to_saved_documents(
-        slot_addr: SocketAddr,
-        actions_tx: Sender<DocsSyncerAction>,
-    ) -> Result<(), Error> {
-        let cmd = Vec::from(Command::Storage(StorageCommand::HKeys(HKeys {
-            key: "docs_ids".into(),
-        })));
-
-        let (_, reply) = Self::cluster_command(slot_addr, cmd)?;
-        let saved_docs_ids = match reply {
-            RespDataType::Array(array) => array
-                .into_iter()
-                .filter_map(|i| {
-                    if let RespDataType::BulkString(id) = i {
-                        Some(id)
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
-            RespDataType::Null => Vec::new(),
-            _ => unreachable!(),
-        };
-
-        if !saved_docs_ids.is_empty() {
-            let _ = actions_tx.send(DocsSyncerAction::SubscribeToDocuments {
-                docs_ids: saved_docs_ids,
-            });
-        } else {
-            print!("{}", log::info!("no hay documentos existentes"));
-        }
-
-        Ok(())
     }
 
     fn start_documents_creator(
