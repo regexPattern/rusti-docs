@@ -54,6 +54,7 @@ pub enum DocsSyncerAction {
         doc_kind: String,
         doc_content: String,
     },
+    Quit,
 }
 
 impl DocsSyncer {
@@ -67,14 +68,12 @@ impl DocsSyncer {
 
     /// Inicia la ejecución del sincronizador y los threads de gestión.
     /// Devuelve los handles de los threads lanzados.
-    pub fn start(mut self) -> Result<Vec<JoinHandle<Result<(), Error>>>, Error> {
+    pub fn start(mut self) -> Result<JoinHandle<Result<(), Error>>, Error> {
         let db_addr = self.db_addr;
         let docs_stream = self.docs_stream.try_clone().map_err(Error::OpenConn)?;
         let (actions_tx, actions_rx) = mpsc::channel();
 
-        let mut handles = Vec::new();
-
-        handles.push(thread::spawn(move || {
+        let handle = thread::spawn(move || {
             for action in actions_rx {
                 match action {
                     DocsSyncerAction::CreateNewDocument {
@@ -106,23 +105,21 @@ impl DocsSyncer {
                         doc_kind,
                         doc_content,
                     } => self.persist_document(doc_id, doc_kind, doc_content)?,
+                    DocsSyncerAction::Quit => {
+                        return Ok(());
+                    }
                 }
             }
             Ok(())
-        }));
+        });
 
-        handles.push(Self::start_documents_creator(db_addr, actions_tx.clone())?);
+        Self::subscribe_to_saved_documents(db_addr, actions_tx.clone())?;
 
-        handles.push(Self::start_documents_watcher(
-            docs_stream,
-            actions_tx.clone(),
-        ));
+        Self::start_documents_creator(db_addr, actions_tx.clone())?;
+        Self::start_documents_watcher(docs_stream, actions_tx.clone());
+        Self::start_connected_clients_publisher(actions_tx);
 
-        handles.push(Self::start_connected_clients_publisher(actions_tx.clone()));
-
-        Self::subscribe_to_saved_documents(db_addr, actions_tx)?;
-
-        Ok(handles)
+        Ok(handle)
     }
 
     fn cluster_command(
@@ -321,6 +318,7 @@ impl DocsSyncer {
                             "{}",
                             log::warn!("desconectado stream de creación de documentos")
                         );
+                        let _ = actions_tx.send(DocsSyncerAction::Quit);
                         return Ok(());
                     }
                     Err(err) => {
@@ -328,6 +326,7 @@ impl DocsSyncer {
                             "{}",
                             log::error!("error leyendo stream de creación de documentos: {err}")
                         );
+                        let _ = actions_tx.send(DocsSyncerAction::Quit);
                         return Ok(());
                     }
                 }

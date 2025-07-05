@@ -36,11 +36,9 @@ fn main() {
     };
 
     match docs_syncer.start() {
-        Ok(handles) => {
-            for h in handles.into_iter() {
-                if let Err(err) = h.join().unwrap() {
-                    print!("{}", log::error!("{err}"));
-                }
+        Ok(handle) => {
+            if let Err(err) = handle.join().unwrap() {
+                print!("{}", log::error!("{err}"));
             }
         }
         Err(err) => print!("{}", log::error!("{err}")),

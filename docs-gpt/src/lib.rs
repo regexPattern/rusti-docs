@@ -143,12 +143,14 @@ impl DocsGpt {
                             "{}",
                             log::warn!("desconectado stream de solicitud de generaciones")
                         );
+                        return;
                     }
                     Err(err) => {
                         print!(
                             "{}",
                             log::error!("error leyendo stream de solicitud de generaciones: {err}")
                         );
+                        return;
                     }
                 }
             }
