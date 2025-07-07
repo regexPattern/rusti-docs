@@ -10,6 +10,10 @@ services:
     networks:
       redis_network:
         ipv4_address: 172.20.0.10
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "172.20.0.10", "-p", "7000", "ping"]
+      interval: 10s
+      start_period: 3s
 
   redis_server_7001:
     build:
@@ -22,6 +26,10 @@ services:
     networks:
       redis_network:
         ipv4_address: 172.20.0.11
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "172.20.0.11", "-p", "7001", "ping"]
+      interval: 10s
+      start_period: 3s
 
   redis_server_7002:
     build:
@@ -34,6 +42,10 @@ services:
     networks:
       redis_network:
         ipv4_address: 172.20.0.12
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "172.20.0.12", "-p", "7002", "ping"]
+      interval: 10s
+      start_period: 3s
 
   redis_server_7003:
     build:
@@ -46,6 +58,10 @@ services:
     networks:
       redis_network:
         ipv4_address: 172.20.0.13
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "172.20.0.13", "-p", "7003", "ping"]
+      interval: 10s
+      start_period: 3s
 
   redis_server_7004:
     build:
@@ -58,6 +74,10 @@ services:
     networks:
       redis_network:
         ipv4_address: 172.20.0.14
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "172.20.0.14", "-p", "7004", "ping"]
+      interval: 10s
+      start_period: 3s
 
   redis_server_7005:
     build:
@@ -70,6 +90,10 @@ services:
     networks:
       redis_network:
         ipv4_address: 172.20.0.15
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "172.20.0.15", "-p", "7005", "ping"]
+      interval: 10s
+      start_period: 3s
 
   redis_server_7006:
     build:
@@ -82,6 +106,10 @@ services:
     networks:
       redis_network:
         ipv4_address: 172.20.0.16
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "172.20.0.16", "-p", "7006", "ping"]
+      interval: 10s
+      start_period: 3s
 
   redis_server_7007:
     build:
@@ -94,6 +122,10 @@ services:
     networks:
       redis_network:
         ipv4_address: 172.20.0.17
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "172.20.0.17", "-p", "7007", "ping"]
+      interval: 10s
+      start_period: 3s
 
   redis_server_7008:
     build:
@@ -106,6 +138,10 @@ services:
     networks:
       redis_network:
         ipv4_address: 172.20.0.18
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "172.20.0.18", "-p", "7008", "ping"]
+      interval: 10s
+      start_period: 3s
 
   docs_syncer:
     build:
@@ -114,15 +150,24 @@ services:
       REDIS_HOST: 172.20.0.10
       REDIS_PORT: 7000
     depends_on:
-      - redis_server_7000
-      - redis_server_7001
-      - redis_server_7002
-      - redis_server_7003
-      - redis_server_7004
-      - redis_server_7005
-      - redis_server_7006
-      - redis_server_7007
-      - redis_server_7008
+      redis_server_7000:
+        condition: service_healthy
+      redis_server_7001:
+        condition: service_healthy
+      redis_server_7002:
+        condition: service_healthy
+      redis_server_7003:
+        condition: service_healthy
+      redis_server_7004:
+        condition: service_healthy
+      redis_server_7005:
+        condition: service_healthy
+      redis_server_7006:
+        condition: service_healthy
+      redis_server_7007:
+        condition: service_healthy
+      redis_server_7008:
+        condition: service_healthy
     networks:
       - redis_network
 
@@ -134,15 +179,24 @@ services:
       REDIS_HOST: 172.20.0.10
       REDIS_PORT: 7000
     depends_on:
-      - redis_server_7000
-      - redis_server_7001
-      - redis_server_7002
-      - redis_server_7003
-      - redis_server_7004
-      - redis_server_7005
-      - redis_server_7006
-      - redis_server_7007
-      - redis_server_7008
+      redis_server_7000:
+        condition: service_healthy
+      redis_server_7001:
+        condition: service_healthy
+      redis_server_7002:
+        condition: service_healthy
+      redis_server_7003:
+        condition: service_healthy
+      redis_server_7004:
+        condition: service_healthy
+      redis_server_7005:
+        condition: service_healthy
+      redis_server_7006:
+        condition: service_healthy
+      redis_server_7007:
+        condition: service_healthy
+      redis_server_7008:
+        condition: service_healthy
     networks:
       - redis_network
 

@@ -111,16 +111,18 @@ impl Widget for TextEditor<'_, '_, '_, '_, '_> {
                                         ScrollArea::vertical().id_salt("replace_scroll").show(
                                             ui,
                                             |ui| {
-                                                Frame::new().fill(Color32::BLACK).show(ui, |ui| {
-                                                    if Range::is_empty(&range) {
-                                                        ui.label(format!(
-                                                            "(Caracter {})",
-                                                            range.start
-                                                        ));
-                                                    } else {
-                                                        ui.label(&self.content[range]);
-                                                    }
-                                                });
+                                                Frame::new()
+                                                    .fill(ui.visuals().extreme_bg_color)
+                                                    .show(ui, |ui| {
+                                                        if Range::is_empty(&range) {
+                                                            ui.label(format!(
+                                                                "(Caracter {})",
+                                                                range.start
+                                                            ));
+                                                        } else {
+                                                            ui.label(&self.content[range]);
+                                                        }
+                                                    });
                                             },
                                         );
                                     }
