@@ -82,7 +82,8 @@ impl Widget for TextEditor<'_, '_, '_, '_, '_> {
                                 ui.horizontal(|ui| {
                                     ui.add_enabled_ui(
                                         !self.waiting_llm_response
-                                            && (*self.full_gen_on || *self.rango_valido),
+                                            && (*self.full_gen_on || *self.rango_valido)
+                                            && !self.prompt.is_empty(),
                                         |ui| {
                                             if ui.button("Generar").clicked() {
                                                 let _ =

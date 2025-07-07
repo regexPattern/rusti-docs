@@ -49,11 +49,7 @@ La estructura se puede visualizar faciltamente en el siguiente gráfico:
            0-5460              5461-10921           10922-16383
 ```
 
-Para configurar el cluster de esta forma se debe ejecutar el script [`config-cluster.sh`](./config-cluster.sh), que fue construído justamente para facilitar la configuración de un cluster con esta estructura. La utilidad `redis-cli` debe estar descargada de manera local para el correcto funcionamiento del script. Para ejecutarlo, se debe correr el siguiente comando desde la raíz del repositorio:
-
-```bash
-bash ./config-cluster.sh
-```
+La configuración del cluster se hace de manera automática al inicializar el compose utilizando el script [`config-cluster.sh`](./config-cluster.sh). Se espera a que el cluster esté bien configurado para que finalmente pueda ser utilizado.
 
 ### Detención y Destrucción del Cluster
 

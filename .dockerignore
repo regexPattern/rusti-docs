@@ -2,6 +2,7 @@ Dockerfile
 LICENSE
 README.md
 compose.yaml
+config-cluster.sh
 redis-server/redis*.conf
 redis-server/test-cluster/
 redis-server/test-tls/

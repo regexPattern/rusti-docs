@@ -5,7 +5,7 @@ use std::{
 };
 
 use chrono::{DateTime, Local};
-use eframe::egui::{self, RichText, Vec2};
+use eframe::egui::{self, RichText, Vec2, ViewportCommand};
 use redis_cmd::{
     Command,
     pub_sub::{PubSubCommand, Publish},
@@ -119,11 +119,20 @@ impl Menu {
     pub fn ui(&mut self, ui: &mut egui::Ui) -> Option<DocMetadata> {
         let mut selected_doc = None;
 
+        ui.ctx()
+            .send_viewport_cmd(ViewportCommand::Title("Editor de Documentos".to_string()));
+
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 ui.set_width(300.0);
 
                 ui.heading(RichText::new("Abrir Documento"));
+                ui.add_space(8.0);
+
+                if ui.button("Refrescar 🔃").clicked() {
+                    self.update_saved_documents_list().unwrap();
+                }
+
                 ui.add_space(8.0);
 
                 ui.vertical(|ui| {

@@ -143,12 +143,15 @@ services:
       interval: 10s
       start_period: 3s
 
-  docs_syncer:
+  cluster_configurator:
     build:
-      dockerfile: docs-syncer.Dockerfile
-    environment:
-      REDIS_HOST: 172.20.0.10
-      REDIS_PORT: 7000
+      dockerfile_inline: |
+        FROM debian:bullseye-slim
+        RUN apt-get update && apt-get install -y redis-tools && rm -rf /var/lib/apt/lists/*
+    command:
+      bash /config-cluster.conf
+    volumes:
+      - ./config-cluster.sh:/config-cluster.conf
     depends_on:
       redis_server_7000:
         condition: service_healthy
@@ -171,32 +174,30 @@ services:
     networks:
       - redis_network
 
+  docs_syncer:
+    build:
+      dockerfile: docs-syncer.Dockerfile
+    environment:
+      REDIS_HOST: 172.20.0.16
+      REDIS_PORT: 7006
+    depends_on:
+      cluster_configurator:
+        condition: service_completed_successfully
+        restart: true
+    networks:
+      - redis_network
+
   docs_gpt:
     build:
       dockerfile: docs-gpt.Dockerfile
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?}
-      REDIS_HOST: 172.20.0.10
-      REDIS_PORT: 7000
+      REDIS_HOST: 172.20.0.16
+      REDIS_PORT: 7006
     depends_on:
-      redis_server_7000:
-        condition: service_healthy
-      redis_server_7001:
-        condition: service_healthy
-      redis_server_7002:
-        condition: service_healthy
-      redis_server_7003:
-        condition: service_healthy
-      redis_server_7004:
-        condition: service_healthy
-      redis_server_7005:
-        condition: service_healthy
-      redis_server_7006:
-        condition: service_healthy
-      redis_server_7007:
-        condition: service_healthy
-      redis_server_7008:
-        condition: service_healthy
+      cluster_configurator:
+        condition: service_completed_successfully
+        restart: true
     networks:
       - redis_network
 
