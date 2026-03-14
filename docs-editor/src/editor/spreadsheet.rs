@@ -41,9 +41,10 @@ impl SpreadSheetEditor<'_> {
                             let in_mem_cell = &self.0[row_index][col_index];
 
                             if in_mem_cell.starts_with('=')
-                                && let Some(value) = self.eval_formula(in_mem_cell) {
-                                    self.0[row_index][col_index] = value;
-                                }
+                                && let Some(value) = self.eval_formula(in_mem_cell)
+                            {
+                                self.0[row_index][col_index] = value;
+                            }
 
                             ui.text_edit_singleline(&mut self.0[row_index][col_index]);
                         });

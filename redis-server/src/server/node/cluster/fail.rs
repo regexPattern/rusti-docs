@@ -117,28 +117,28 @@ impl ClusterActor {
         for node_id in affected_node_ids {
             if let Some(reports) = self.failure_reports.get(&node_id)
                 && Self::failure_has_quorum(self.myself.flags, reports.len(), n_known_other_masters)
-                {
-                    actions_tx
-                        .send(ClusterAction::ConfirmFailure { id: node_id })
-                        .unwrap();
+            {
+                actions_tx
+                    .send(ClusterAction::ConfirmFailure { id: node_id })
+                    .unwrap();
 
-                    let _ =
-                        log_tx.send(log::info!("enviado FAIL de nodo {}", hex::encode(node_id)));
+                let _ = log_tx.send(log::info!("enviado FAIL de nodo {}", hex::encode(node_id)));
 
-                    if let Some(node) = self.cluster_view.get_mut(&node_id) {
-                        node.flags.0 &= !flags::FLAG_PFAIL;
-                        node.flags.0 |= flags::FLAG_FAIL;
-                    }
-
-                    if let Some(master_id) = self.myself.master_id
-                        && master_id == node_id {
-                            let _ = log_tx.send(log::info!(
-                                "Mi master {} ha fallado, solicitando failover",
-                                hex::encode(master_id)
-                            ));
-                            self.request_failover(log_tx);
-                        }
+                if let Some(node) = self.cluster_view.get_mut(&node_id) {
+                    node.flags.0 &= !flags::FLAG_PFAIL;
+                    node.flags.0 |= flags::FLAG_FAIL;
                 }
+
+                if let Some(master_id) = self.myself.master_id
+                    && master_id == node_id
+                {
+                    let _ = log_tx.send(log::info!(
+                        "Mi master {} ha fallado, solicitando failover",
+                        hex::encode(master_id)
+                    ));
+                    self.request_failover(log_tx);
+                }
+            }
         }
     }
 

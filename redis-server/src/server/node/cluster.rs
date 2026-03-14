@@ -277,42 +277,41 @@ impl ClusterActor {
                     if self.failover_in_progress
                         && let (Some(start), Some(_epoch)) =
                             (self.failover_start, self.failover_epoch)
-                            && SystemTime::now().duration_since(start).unwrap()
-                                > Duration::from_millis(self.failover_timeout_millis)
-                            {
-                                let should_stop_failover =
-                                    if self.myself.flags.contains(flags::FLAG_MASTER) {
-                                        true
-                                    } else if let Some(master_id) = self.myself.master_id {
-                                        if let Some(master) = self.cluster_view.get(&master_id) {
-                                            !master.flags.contains(flags::FLAG_FAIL)
-                                        } else {
-                                            false
-                                        }
-                                    } else {
-                                        false
-                                    };
-
-                                if should_stop_failover {
-                                    let _ = log_tx.send(log::debug!(
-                                        "finalizando failover - situación resuelta"
-                                    ));
-
-                                    self.failover_in_progress = false;
-                                    self.failover_epoch = None;
-                                    self.failover_start = None;
-                                } else {
-                                    let _ = log_tx.send(log::info!(
-                                        "reiniciando failover: current epoch pasa de {} a {}",
-                                        self.current_epoch,
-                                        self.current_epoch + 1
-                                    ));
-
-                                    self.current_epoch += 1;
-                                    self.votes_received = 0;
-                                    self.request_failover(&log_tx);
-                                }
+                        && SystemTime::now().duration_since(start).unwrap()
+                            > Duration::from_millis(self.failover_timeout_millis)
+                    {
+                        let should_stop_failover = if self.myself.flags.contains(flags::FLAG_MASTER)
+                        {
+                            true
+                        } else if let Some(master_id) = self.myself.master_id {
+                            if let Some(master) = self.cluster_view.get(&master_id) {
+                                !master.flags.contains(flags::FLAG_FAIL)
+                            } else {
+                                false
                             }
+                        } else {
+                            false
+                        };
+
+                        if should_stop_failover {
+                            let _ = log_tx
+                                .send(log::debug!("finalizando failover - situación resuelta"));
+
+                            self.failover_in_progress = false;
+                            self.failover_epoch = None;
+                            self.failover_start = None;
+                        } else {
+                            let _ = log_tx.send(log::info!(
+                                "reiniciando failover: current epoch pasa de {} a {}",
+                                self.current_epoch,
+                                self.current_epoch + 1
+                            ));
+
+                            self.current_epoch += 1;
+                            self.votes_received = 0;
+                            self.request_failover(&log_tx);
+                        }
+                    }
                 }
                 ClusterAction::BroadcastPublish { channel, message } => {
                     self.broadcast_publish(channel, message, &actions_tx, &log_tx);
@@ -420,21 +419,23 @@ impl ClusterActor {
 
                 // Si este nodo es replica y el mensaje viene de su master, actualizar mis slots
                 if let Some(my_master_id) = self.myself.master_id
-                    && my_master_id == header.id && header.flags.contains(flags::FLAG_MASTER) {
-                        let old_slots = self.myself.slots;
-                        self.myself.slots = header.slots;
+                    && my_master_id == header.id
+                    && header.flags.contains(flags::FLAG_MASTER)
+                {
+                    let old_slots = self.myself.slots;
+                    self.myself.slots = header.slots;
 
-                        if old_slots != header.slots {
-                            let _ = log_tx.send(log::info!(
-                                "actualizados mis slots de {}-{} a {}-{} recibidos del master {}",
-                                old_slots.0,
-                                old_slots.1,
-                                header.slots.0,
-                                header.slots.1,
-                                hex::encode(header.id)
-                            ));
-                        }
+                    if old_slots != header.slots {
+                        let _ = log_tx.send(log::info!(
+                            "actualizados mis slots de {}-{} a {}-{} recibidos del master {}",
+                            old_slots.0,
+                            old_slots.1,
+                            header.slots.0,
+                            header.slots.1,
+                            hex::encode(header.id)
+                        ));
                     }
+                }
             }
             Entry::Vacant(entry) => {
                 entry.insert(ClusterNode {
@@ -452,21 +453,23 @@ impl ClusterActor {
 
                 // Si este nodo es replica y el nuevo nodo es su master, actualizar mis slots
                 if let Some(my_master_id) = self.myself.master_id
-                    && my_master_id == header.id && header.flags.contains(flags::FLAG_MASTER) {
-                        let old_slots = self.myself.slots;
-                        self.myself.slots = header.slots;
+                    && my_master_id == header.id
+                    && header.flags.contains(flags::FLAG_MASTER)
+                {
+                    let old_slots = self.myself.slots;
+                    self.myself.slots = header.slots;
 
-                        if old_slots != header.slots {
-                            let _ = log_tx.send(log::info!(
-                                "actualizados mis slots de {}-{} a {}-{} al conocer a mi master {}",
-                                old_slots.0,
-                                old_slots.1,
-                                header.slots.0,
-                                header.slots.1,
-                                hex::encode(header.id)
-                            ));
-                        }
+                    if old_slots != header.slots {
+                        let _ = log_tx.send(log::info!(
+                            "actualizados mis slots de {}-{} a {}-{} al conocer a mi master {}",
+                            old_slots.0,
+                            old_slots.1,
+                            header.slots.0,
+                            header.slots.1,
+                            hex::encode(header.id)
+                        ));
                     }
+                }
             }
         };
 

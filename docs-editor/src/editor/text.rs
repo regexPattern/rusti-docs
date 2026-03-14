@@ -30,22 +30,23 @@ impl Widget for TextEditor<'_, '_, '_, '_, '_> {
                         .show(ui);
 
                     if ui.input(|i| i.modifiers.command && i.key_pressed(Key::Enter))
-                        && let Some(cursor_range) = text_edit.cursor_range {
-                            let selected_range = cursor_range.as_sorted_char_range();
+                        && let Some(cursor_range) = text_edit.cursor_range
+                    {
+                        let selected_range = cursor_range.as_sorted_char_range();
 
-                            print!(
-                                "{}",
-                                log::debug!(
-                                    "seleccionado rango de contexto de byte {} a byte {}",
-                                    selected_range.start,
-                                    selected_range.end
-                                )
-                            );
-                            print!("{}", log::debug!("activado modo generación parcial"));
+                        print!(
+                            "{}",
+                            log::debug!(
+                                "seleccionado rango de contexto de byte {} a byte {}",
+                                selected_range.start,
+                                selected_range.end
+                            )
+                        );
+                        print!("{}", log::debug!("activado modo generación parcial"));
 
-                            *self.selected_range = Some(selected_range);
-                            *self.full_gen_on = false;
-                        }
+                        *self.selected_range = Some(selected_range);
+                        *self.full_gen_on = false;
+                    }
                 });
 
             Frame::new()

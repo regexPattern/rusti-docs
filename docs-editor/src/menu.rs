@@ -182,17 +182,18 @@ impl Menu {
                         ui.text_edit_singleline(&mut self.new_doc_basename);
 
                         if let Some(kind) = DocKind::from_basename(&self.new_doc_basename)
-                            && ui.button("Crear Documento").clicked() {
-                                match self.create_new_document(kind) {
-                                    Ok(doc_metadata) => {
-                                        self.new_doc_basename.clear();
-                                        self.saved_docs.insert(0, doc_metadata);
-                                    }
-                                    Err(err) => {
-                                        print!("{}", log::error!("error creando documento: {err}"))
-                                    }
+                            && ui.button("Crear Documento").clicked()
+                        {
+                            match self.create_new_document(kind) {
+                                Ok(doc_metadata) => {
+                                    self.new_doc_basename.clear();
+                                    self.saved_docs.insert(0, doc_metadata);
+                                }
+                                Err(err) => {
+                                    print!("{}", log::error!("error creando documento: {err}"))
                                 }
                             }
+                        }
                     });
 
                     ui.small(

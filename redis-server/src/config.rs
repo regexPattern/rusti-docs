@@ -93,17 +93,18 @@ impl Config {
                 opts.get("tls-cert-file"),
                 opts.get("tls-key-file"),
                 opts.get("tls-ca-cert-file"),
-            ) {
-                let cert_file = cert_file.trim_matches('"').into();
-                let key_file = key_file.trim_matches('"').into();
-                let ca_cert_file = ca_cert_file.trim_matches('"').into();
+            )
+        {
+            let cert_file = cert_file.trim_matches('"').into();
+            let key_file = key_file.trim_matches('"').into();
+            let ca_cert_file = ca_cert_file.trim_matches('"').into();
 
-                config.tls = Some(TlsConfig {
-                    cert_file,
-                    key_file,
-                    ca_cert_file,
-                });
-            }
+            config.tls = Some(TlsConfig {
+                cert_file,
+                key_file,
+                ca_cert_file,
+            });
+        }
         if let Some(cluster_enabled) = opts.get("cluster-enabled") {
             if cluster_enabled == "yes" {
                 let mut cluster_config = ClusterConfig::default(config.bind, config.port);
