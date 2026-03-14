@@ -112,11 +112,10 @@ impl StorageActor {
         };
 
         let mapped_index = map_index(index, list.len());
-        if let Some(i) = mapped_index {
-            if let Some(element) = list.iter().nth(i) {
+        if let Some(i) = mapped_index
+            && let Some(element) = list.iter().nth(i) {
                 return element.clone().into();
             }
-        }
 
         BulkString::from("").into()
     }

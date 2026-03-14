@@ -274,11 +274,10 @@ impl ClusterActor {
                 ClusterAction::CheckFailures => {
                     self.check_failures(&actions_tx, &log_tx);
 
-                    if self.failover_in_progress {
-                        if let (Some(start), Some(_epoch)) =
+                    if self.failover_in_progress
+                        && let (Some(start), Some(_epoch)) =
                             (self.failover_start, self.failover_epoch)
-                        {
-                            if SystemTime::now().duration_since(start).unwrap()
+                            && SystemTime::now().duration_since(start).unwrap()
                                 > Duration::from_millis(self.failover_timeout_millis)
                             {
                                 let should_stop_failover =
@@ -314,8 +313,6 @@ impl ClusterActor {
                                     self.request_failover(&log_tx);
                                 }
                             }
-                        }
-                    }
                 }
                 ClusterAction::BroadcastPublish { channel, message } => {
                     self.broadcast_publish(channel, message, &actions_tx, &log_tx);
@@ -422,8 +419,8 @@ impl ClusterActor {
                 known_node.master_id = header.master_id;
 
                 // Si este nodo es replica y el mensaje viene de su master, actualizar mis slots
-                if let Some(my_master_id) = self.myself.master_id {
-                    if my_master_id == header.id && header.flags.contains(flags::FLAG_MASTER) {
+                if let Some(my_master_id) = self.myself.master_id
+                    && my_master_id == header.id && header.flags.contains(flags::FLAG_MASTER) {
                         let old_slots = self.myself.slots;
                         self.myself.slots = header.slots;
 
@@ -438,7 +435,6 @@ impl ClusterActor {
                             ));
                         }
                     }
-                }
             }
             Entry::Vacant(entry) => {
                 entry.insert(ClusterNode {
@@ -455,8 +451,8 @@ impl ClusterActor {
                 });
 
                 // Si este nodo es replica y el nuevo nodo es su master, actualizar mis slots
-                if let Some(my_master_id) = self.myself.master_id {
-                    if my_master_id == header.id && header.flags.contains(flags::FLAG_MASTER) {
+                if let Some(my_master_id) = self.myself.master_id
+                    && my_master_id == header.id && header.flags.contains(flags::FLAG_MASTER) {
                         let old_slots = self.myself.slots;
                         self.myself.slots = header.slots;
 
@@ -471,7 +467,6 @@ impl ClusterActor {
                             ));
                         }
                     }
-                }
             }
         };
 

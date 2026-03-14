@@ -181,8 +181,8 @@ impl Menu {
                     ui.horizontal(|ui| {
                         ui.text_edit_singleline(&mut self.new_doc_basename);
 
-                        if let Some(kind) = DocKind::from_basename(&self.new_doc_basename) {
-                            if ui.button("Crear Documento").clicked() {
+                        if let Some(kind) = DocKind::from_basename(&self.new_doc_basename)
+                            && ui.button("Crear Documento").clicked() {
                                 match self.create_new_document(kind) {
                                     Ok(doc_metadata) => {
                                         self.new_doc_basename.clear();
@@ -193,7 +193,6 @@ impl Menu {
                                     }
                                 }
                             }
-                        }
                     });
 
                     ui.small(

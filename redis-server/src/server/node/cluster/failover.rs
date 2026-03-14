@@ -79,15 +79,14 @@ impl ClusterActor {
         let bytes = Vec::from(&msg);
 
         for (id, node) in &self.cluster_view {
-            if node.flags.contains(flags::FLAG_MASTER) && !node.flags.contains(flags::FLAG_FAIL) {
-                if let Some(stream) = self.cluster_streams.get_mut(id) {
+            if node.flags.contains(flags::FLAG_MASTER) && !node.flags.contains(flags::FLAG_FAIL)
+                && let Some(stream) = self.cluster_streams.get_mut(id) {
                     if let Err(err) = stream.write_all(&bytes) {
                         let _ = log_tx.send(log::error!("{err}"));
                         continue;
                     }
                     let _ = log_tx.send(log::info!("pidiendo voto a nodo {}", hex::encode(id)));
                 }
-            }
         }
     }
 

@@ -88,8 +88,8 @@ impl Config {
             let appendfilename = appendfilename.trim_matches('"');
             config.appendfilename = appendfilename.into();
         }
-        if opts.contains_key("tls-port") {
-            if let (Some(cert_file), Some(key_file), Some(ca_cert_file)) = (
+        if opts.contains_key("tls-port")
+            && let (Some(cert_file), Some(key_file), Some(ca_cert_file)) = (
                 opts.get("tls-cert-file"),
                 opts.get("tls-key-file"),
                 opts.get("tls-ca-cert-file"),
@@ -104,7 +104,6 @@ impl Config {
                     ca_cert_file,
                 });
             }
-        }
         if let Some(cluster_enabled) = opts.get("cluster-enabled") {
             if cluster_enabled == "yes" {
                 let mut cluster_config = ClusterConfig::default(config.bind, config.port);

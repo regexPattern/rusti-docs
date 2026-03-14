@@ -29,8 +29,8 @@ impl Widget for TextEditor<'_, '_, '_, '_, '_> {
                         .desired_width(450.0)
                         .show(ui);
 
-                    if ui.input(|i| i.modifiers.command && i.key_pressed(Key::Enter)) {
-                        if let Some(cursor_range) = text_edit.cursor_range {
+                    if ui.input(|i| i.modifiers.command && i.key_pressed(Key::Enter))
+                        && let Some(cursor_range) = text_edit.cursor_range {
                             let selected_range = cursor_range.as_sorted_char_range();
 
                             print!(
@@ -46,7 +46,6 @@ impl Widget for TextEditor<'_, '_, '_, '_, '_> {
                             *self.selected_range = Some(selected_range);
                             *self.full_gen_on = false;
                         }
-                    }
                 });
 
             Frame::new()

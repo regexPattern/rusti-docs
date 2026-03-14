@@ -27,12 +27,11 @@ impl ClusterActor {
         if new_master_id == self.myself.id {
             let err_msg = "nodo no puede ser réplica de si mismo";
             return SimpleError::from(err_msg).into();
-        } else if let Some(curr_master_id) = self.myself.master_id {
-            if curr_master_id == new_master_id {
+        } else if let Some(curr_master_id) = self.myself.master_id
+            && curr_master_id == new_master_id {
                 let err_msg = format!("nodo ya es réplica de nodo {}", cmd.node_id);
                 return SimpleError::from(err_msg).into();
             }
-        }
 
         match self.set_master(new_master_id, log_tx) {
             Ok(None) => {

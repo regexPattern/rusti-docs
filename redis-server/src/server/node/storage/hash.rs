@@ -7,7 +7,7 @@ use super::{StorageActor, data_type::RedisDataType, error::OperationError};
 impl StorageActor {
     // https://redis.io/docs/latest/commands/hset
     pub(super) fn hset(&mut self, key: BulkString, field_value_pairs: Vec<BulkString>) -> Vec<u8> {
-        if field_value_pairs.is_empty() || field_value_pairs.len() % 2 != 0 {
+        if field_value_pairs.is_empty() || !field_value_pairs.len().is_multiple_of(2) {
             return SimpleError::from(OperationError::WrongNumberOfArgs).into();
         }
 
