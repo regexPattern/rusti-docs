@@ -19,7 +19,7 @@ struct ContentLength<'b> {
     bytes_windows_rest: Windows<'b, u8>,
 }
 
-fn content_length(bytes: &[u8], prefix: u8) -> Result<ContentLength, Error> {
+fn content_length(bytes: &[u8], prefix: u8) -> Result<ContentLength<'_>, Error> {
     if bytes.is_empty() {
         return Err(Error::EmptyPayload);
     } else if bytes[0] != prefix {
