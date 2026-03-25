@@ -2,7 +2,7 @@
 
 Implementación de Redis con soporte para pub/sub y Redis Cluster, un editor de texto colaborativo, un microservicio de control y persistencia que utiliza la implementación de Redis como backend, y un microservicio de generación de contenido usando LLMs.
 
-![Rusti-docs](https://github-production-user-asset-6210df.s3.amazonaws.com/47466248/563577385-21291241-70b6-4f86-8b31-c2e46b3b2803.webp?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAVCODYLSA53PQK4ZA%2F20260316%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260316T180953Z&X-Amz-Expires=300&X-Amz-Signature=9a30151d74e819b3b011626e96df4326600c90334a53f2b647ad807481e10ca1&X-Amz-SignedHeaders=host)
+![Rust-docs](https://private-user-images.githubusercontent.com/47466248/563577385-21291241-70b6-4f86-8b31-c2e46b3b2803.webp?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NzQ0Nzk1NjQsIm5iZiI6MTc3NDQ3OTI2NCwicGF0aCI6Ii80NzQ2NjI0OC81NjM1NzczODUtMjEyOTEyNDEtNzBiNi00Zjg2LThiMzEtYzJlNDZiM2IyODAzLndlYnA_WC1BbXotQWxnb3JpdGhtPUFXUzQtSE1BQy1TSEEyNTYmWC1BbXotQ3JlZGVudGlhbD1BS0lBVkNPRFlMU0E1M1BRSzRaQSUyRjIwMjYwMzI1JTJGdXMtZWFzdC0xJTJGczMlMkZhd3M0X3JlcXVlc3QmWC1BbXotRGF0ZT0yMDI2MDMyNVQyMjU0MjRaJlgtQW16LUV4cGlyZXM9MzAwJlgtQW16LVNpZ25hdHVyZT1mMzViYzM2NTM0ZTMyNWIwYTYyNTI2NWQ1NjM3M2Q5NjZhYTZjYzEyNmE5NmZiMGZjMDc0NDU0NzMzODAyYjY4JlgtQW16LVNpZ25lZEhlYWRlcnM9aG9zdCJ9.2bIeHh6gGVnkx_y7R54rkj-Vi072UhFaLqTluBCWAEM)
 
 Proyecto realizado durante la cursada de la materia Taller de Programación FIUBA durante el 1C 2025. [Enunciado del proyecto](https://taller-1-fiuba-rust.github.io/proyecto/25C1/proyecto.html).
 
